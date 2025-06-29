@@ -70,7 +70,7 @@ output:
 1. **安装依赖**:
    确保安装了工具所需的依赖项，例如 `PyYAML` 和 `sqlite-vec`。
    ```bash
-   pip install -r requirements.txt
+   pip install -e .
    ```
 
 2. **运行基准测试**:
