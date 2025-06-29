@@ -1,0 +1,34 @@
+# Benchmark Configuration for VectorSQL
+
+database:
+  name: 'test'
+  path: 'data/vector_database_2.sqlite'
+
+embedding:
+  name: 'all-MiniLM-L6-v2'
+  model_path: 'embed-model/all-MiniLM-L6-v2.e4ce9877.q8_0.gguf'
+
+
+queries:
+  - name: 'gold_standard'
+    path: 'queries/sample_gold.sql'
+    is_gold: true
+  - name: 'test'
+    path: 'queries/sample_test.sql'
+    is_gold: false
+
+metrics:
+  - execution_time
+  - result_count
+  - accuracy
+  - name: mrr
+    k: 100
+  - name: map
+    k: 100
+  - name: ndcg
+    k: 100
+
+
+output:
+  dir: 'results/'
+  format: 'json'
