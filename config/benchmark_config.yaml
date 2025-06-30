@@ -2,19 +2,19 @@
 
 database:
   name: 'test'
-  path: 'data/vector_database_2.sqlite'
+  path: 'bench/vector_database_2.sqlite'
 
 embedding:
   name: 'all-MiniLM-L6-v2'
-  model_path: 'embed-model/all-MiniLM-L6-v2.e4ce9877.q8_0.gguf'
+  model_path: 'method/model/encoder/all-MiniLM-L6-v2.e4ce9877.q8_0.gguf'
 
 
 queries:
   - name: 'gold_standard'
-    path: 'queries/sample_gold.sql'
+    path: 'bench/queries/sample_gold.sql'
     is_gold: true
   - name: 'test'
-    path: 'queries/sample_test.sql'
+    path: 'bench/queries/sample_test.sql'
     is_gold: false
 
 metrics:

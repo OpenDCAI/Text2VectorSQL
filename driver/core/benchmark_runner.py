@@ -6,8 +6,8 @@ import os
 import re
 import sqlite_lembed
 from client.mock_vsql_client import VectorSQLClient
-from db.database import register_database
-from db.connection_manager import connection_manager
+from core.db.database import register_database
+from core.db.connection_manager import connection_manager
 from .metrics import calculate_accuracy, calculate_mrr, calculate_map, calculate_ndcg
 
 def load_config(config_path: str) -> dict:
@@ -317,7 +317,8 @@ def save_results(results: dict, output_config: dict):
     """将基准测试结果保存到文件中。"""
     output_dir = output_config['dir']
     os.makedirs(output_dir, exist_ok=True)
-    file_path = os.path.join(output_dir, f"results_{int(time.time())}.{output_config['format']}")
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    file_path = os.path.join(output_dir, f"results_{timestamp}.{output_config['format']}")
 
     print(f"\n正在将结果保存到 '{file_path}'...")
     with open(file_path, 'w') as f:

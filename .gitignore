@@ -1,0 +1,6 @@
+__pycache__
+.vscode
+*.sqlite-shm
+*.sqlite-wal
+*.egg-info
+results/*
