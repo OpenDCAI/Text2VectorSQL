@@ -4,3 +4,4 @@ __pycache__
 *.sqlite-wal
 *.egg-info
 results/*
+.DS_Store
