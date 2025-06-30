@@ -5,9 +5,9 @@ import json
 import os
 import re
 import sqlite_lembed
-from client.mock_vsql_client import VectorSQLClient
-from core.db.database import register_database
-from core.db.connection_manager import connection_manager
+from .db.mock_vsql_client import VectorSQLClient
+from .db.database import register_database
+from .db.connection_manager import connection_manager
 from .metrics import calculate_accuracy, calculate_mrr, calculate_map, calculate_ndcg
 
 def load_config(config_path: str) -> dict:

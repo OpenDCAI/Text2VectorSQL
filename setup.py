@@ -1,13 +1,13 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='vectorsql-benchmark',
+    name='vectorsql-bench',
     version='0.1.0',  # Incremented version
     packages=find_packages(),
     entry_points={
         'console_scripts': [
-            'vectorsql-cli=interfaces.sql_interface:sql_interface',
-            'vectorsql-benchmark=interfaces.benchmark_cli:main',
+            'vectorsql-client=driver.client_cli:main',
+            'vectorsql-bench=driver.bench_cli:main',
         ],
     },
     install_requires=[

@@ -1,7 +1,7 @@
 import argparse
 import sqlite3
 import sqlite_vec
-from core.benchmark_runner import run_benchmark
+from .core.benchmark_runner import run_benchmark
 
 def main():
     """解析命令行参数并启动基准测试运行器。"""
