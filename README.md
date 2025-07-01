@@ -17,6 +17,7 @@ database:
 
 ### 嵌入模型配置
 嵌入模型用于计算文本向量嵌入。模型需转换为 GGUF 格式，并在基准测试过程中用于所有查询的嵌入计算。
+将模型转换为GGUF，参见[llama.cpp](https://github.com/ggml-org/llama.cpp)
 ```yaml
 embedding:
   name: 'all-MiniLM-L6-v2'
