@@ -16,6 +16,9 @@ setup(
         'sqlite-lembed',  # Added dependency for lembed support
         # 'sqlite3',  # Ensure sqlite3 is available
         'litellm', # Added dependency for litellm
+        "tqdm",
+        "Pillow",
+        "requests",
     ],
 
     description="一个用于类 VectorSQL 系统的基准测试和 CLI 工具。",

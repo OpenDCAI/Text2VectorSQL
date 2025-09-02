@@ -5,3 +5,7 @@ __pycache__
 *.egg-info
 results/*
 .DS_Store
+database/
+clash-for-linux/
+tmp/
+*.zip
