@@ -9,3 +9,4 @@ database/
 clash-for-linux/
 tmp/
 *.zip
+*.db
