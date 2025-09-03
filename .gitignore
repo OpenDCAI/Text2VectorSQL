@@ -1,10 +1,41 @@
+.env
+.env.*
+!.env.example
+
+# macOS system files
+.DS_Store
+__MACOSX/
+
+# Python cache and environment files
+__pycache__/
+*.pyc
+venv/
+env/
+
+
+# big files
+train/
+results/
+!question_synthesis/results/
+
+spider_data/
+spider2_data/
+cache/
+prompt*/
+logging/
+
+./model/all-MiniLM-L6-v2.e4ce9877.q8_0.gguf
+./synthesis/model/
+
+*.sql
+*.sqlite
+
 __pycache__
 .vscode
 *.sqlite-shm
 *.sqlite-wal
 *.egg-info
 results/*
-.DS_Store
 database/
 clash-for-linux/
 tmp/
