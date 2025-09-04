@@ -4,7 +4,7 @@ import re
 from tqdm import tqdm
 
 # --- 配置 ---
-JSON_FILE_PATH = 'database/arxiv/arxiv-metadata-oai-snapshot.json'
+JSON_FILE_PATH = '../database/arxiv/arxiv-metadata-oai-snapshot.json'
 DB_FILE_PATH = 'arxiv.db'
 BATCH_SIZE = 50000
 

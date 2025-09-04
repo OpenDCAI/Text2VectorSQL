@@ -258,8 +258,8 @@ def enhance_vector_info(sql, column_info):
 
 if __name__ == "__main__":
     random.seed(42)
-    db_path = "../bird_vectorization/results/vector_databases_bird"
-    sql_infos = json.load(open("../sql_synthesis/results/synthetic_sqls.json"))
+    db_path = "./results/vector_databases_toy"
+    sql_infos = json.load(open("./results/synthetic_sqls.json"))
     question_synthesis_template = open("./prompt_templates/question_synthesis_prompt.txt").read()
     styles = list(style2desc.keys())
 

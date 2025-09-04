@@ -17,6 +17,7 @@ env/
 train/
 results/
 !question_synthesis/results/
+!synthesis/toy_spider/train
 
 spider_data/
 spider2_data/
