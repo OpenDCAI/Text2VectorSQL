@@ -312,8 +312,8 @@ def main_vector():
         output_schema_name=output_schema_name
     )
 
-def main_brid(): 
-    # 为原始BRID数据集添加每个表的示例数据，顺便把表格描述一起存入schema
+def main_bird(): 
+    # 为原始BIRD数据集添加每个表的示例数据，顺便把表格描述一起存入schema
     process_bird_dataset()
 
 if __name__ == "__main__":
@@ -321,7 +321,7 @@ if __name__ == "__main__":
     # 键是 .env 文件中 APP_MODE 的值
     # 值是上面定义的函数对象（注意：没有括号！）
     FUNCTION_MAP = {
-        "enhance_bird": main_brid,
+        "enhance_bird": main_bird,
         "enhance_vec_bird": main_vector,
         "enhance_spider": process_spider_dataset,
         "spider_vector": main_vector,
@@ -340,7 +340,7 @@ if __name__ == "__main__":
     # --- 5. 从字典中查找并执行对应的函数 ---
     # 使用 .get() 方法来安全地获取函数
     # 如果 mode 对应的键在字典中不存在，.get() 会返回第二个参数（这里是 default_function）
-    selected_function = FUNCTION_MAP.get(mode, main_brid)
+    selected_function = FUNCTION_MAP.get(mode, main_bird)
     
     # 执行找到的函数
     selected_function()

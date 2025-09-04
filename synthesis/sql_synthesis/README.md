@@ -6,8 +6,7 @@ This is the second step in our data synthesis framework, focused on generating c
 
 Generate SQL queries by leveraging database schemas, database values, query complexity, and SQLite-supported functions.
 
-<!-- 1. Execute `python3 generate_sql_synthesis_prompts.py` to create prompts for SQL query generation. -->
-1. Execute `python3 generate_sql_synthesis_prompts_new.py` to create prompts for SQL query generation.
+1. Execute `python3 generate_sql_synthesis_prompts.py` to create prompts for SQL query generation.
 2. Run `python3 synthesize_sql.py` to generate SQL queries using LLMs. (Note: Implement the `llm_inference()` function to integrate your preferred LLM.)
 
 ## Step 2: Post-Processing

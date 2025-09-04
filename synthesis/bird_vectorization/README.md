@@ -1,4 +1,4 @@
-这个文件用来将BRID数据集向量化
+这个文件用来将BIRD数据集向量化
 
 # 加强schema
 先使用enhance_tables_json.py往schema加入每个数据表格的示例信息，将.env中的ENHANCE_TABLE_MODE设置为"enhance_bird"后运行：
@@ -26,7 +26,3 @@ python generate_vector_schema.py
 python enhance_tables_json.py #可以省略这一步，也就不用修改.env了
 ```
 
-# 针对语言信息很丰富的列生成sql
-
-
-# 使用sql合成question

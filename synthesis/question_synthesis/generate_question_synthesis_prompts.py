@@ -107,34 +107,40 @@ guidelines_multi_round = '''1. Clearly describe the columns being selected by th
 # ##########################################################################
 vector_question_guidelines = '''
 
-**Crucial Rule for Vector Queries**: Your most important task is to convert the technical `lembed()` search text into a natural, human-like question that matches the specified style, while preserving the core meaning.
+**Guiding Principles for High-Quality Vector Questions:**
 
-1.  **Identify and Preserve Key Entities**: First, identify the core concepts and keywords within the `lembed()` text. For example, in `"Professor of Computer Science"`, the key entities are **"Professor"** and **"Computer Science"**. These key entities **MUST BE PRESERVED** in the generated question to maintain its meaning.
-2.  **Rephrase Naturally, Do Not Copy Verbatim**: Your goal is to rephrase the overall sentence structure to sound natural. **Do not copy the entire `lembed()` string verbatim**, but you should use the key entities you identified. For example, instead of copying `"Professor of Computer Science"`, you could rephrase it as `"a computer science professor"` or `"professors who specialize in computer science"`. The phrasing must match the requested style (e.g., Formal, Colloquial).
-3.  **Focus on User Intent**: The final question should sound like a real user asking for information, not like a description of a technical process.
+Your ultimate goal is to create a question that a real human would ask. To do this, you must internalize the following principles:
+
+1.  **Translate Mechanism into Intent (The Golden Rule!)**: A vector search (`MATCH ... LIMIT N`) is a technical mechanism to find the "top N" or "best N" examples of something. Your question **MUST** reflect the user's *intent*, not the mechanism.
+    * **Prohibited Phrases**: Avoid technical jargon that describes the search process. Do NOT use phrases like: "most closely related to", "semantically similar to", "based on similarity", "concept of", "field of".
+    * **Approved Phrasing**: Instead, use natural language that implies ranking or quality. Use words like: "top 5", "best", "most representative", "leading", or simply state the entity directly. For example, a search for the top 5 professors should be phrased as "Who are the top 5 professors?", not "Who are the 5 professors most similar to the concept of a professor?".
+
+2.  **Identify and Preserve Key Entities**: Within the `lembed()` text, identify the core keywords (e.g., "Professor", "Computer Science", "leadership skills"). These **MUST** be present in the final question to ensure it is specific and meaningful.
+
+3.  **Rephrase Naturally, Do Not Copy Verbatim**: While preserving key entities, change the overall sentence structure to fit the requested style (Formal, Colloquial, etc.). Do not copy the entire `lembed()` string word-for-word.
 
 ---
 **Examples of Correct vs. Incorrect Behavior:**
 
-**Example 1: Preserving Entities in "Formal" Style**
+**Example 1: Being Natural--like a real human would ask**
 * **Input VecSQL**: `... WHERE p.hasPosition_embedding MATCH lembed('all-MiniLM-L6-v2', "Professor of Computer Science") AND k = 5 ...`
-* **BAD Question**: `"Identify five professors whose roles most closely match the concept of teaching computer science at a professorial level..."`
-    * **Reasoning**: Too verbose and abstract. "concept of teaching computer science at a professorial level" is an unnatural way to say "Computer Science Professor".
-* **GOOD Question**: `"Please provide the IDs and course levels for the 5 individuals most similar to a 'Professor of Computer Science'."` or `"Identify five professors specializing in Computer Science and list the levels of the courses they teach."`
+* **BAD Question**: `"Identify five professors whose roles most closely match the concept of teaching computer science at a professorial level..."` or `"Please provide the IDs, names, and course levels for the five professors who have positions most closely related to the field of computer science, ordered by similarity."`
+    * **Reasoning**: This is the classic mistake. It describes the vector search mechanism ("most closely related to") instead of asking a direct, human-like question. Too verbose and abstract. "concept of teaching computer science at a professorial level" or "who have positions most closely related to" is an unnatural way to say "Computer Science Professor".
+* **GOOD Question**: `"Please provide the IDs and course levels for the 5 professors who specialize in computer science."` or `"Identify five computer science professors and list the levels of the courses they teach."`
     * **Reasoning**: Correctly uses the key entities "Professor" and "Computer Science" in a formal and direct manner.
 
-**Example 2: Avoiding Over-generalization in "Imperative" Style**
+**Example 2: Preserving Entities**
 * **Input VecSQL**: `... WHERE p.hasPosition_embedding MATCH lembed('all-MiniLM-L6-v2', "Professor of Mathematics") LIMIT 5 ...`
 * **BAD Question**: `"Could you please find the top 5 individuals most semantically related to a specialized academic teaching role..."`
     * **Reasoning**: Completely fails by losing the essential key entities **"Professor"** and **"Mathematics"**. The question is now uselessly vague.
-* **GOOD Question**: `"Get me the top 5 people who are most like a Professor of Mathematics, and show me their course levels."`
+* **GOOD Question**: `"Get me the top 5 people who are very professional in mathematics, and show me their course levels."`
     * **Reasoning**: Preserves the critical entities in a natural, imperative sentence.
 
-**Example 3: Being Natural in "Colloquial" Style**
+**Example 3: Being Natural**
 * **Input VecSQL**: `... WHERE performance_embedding MATCH lembed('all-MiniLM-L6-v2', "exceptional performance with leadership skills") LIMIT 1;`
 * **BAD Question**: `"Hey, could you help me find the employee whose performance is most closely related to being a standout leader?"`
-    * **Reasoning**: "most closely related to being..." is clunky. It also loses the "exceptional performance" aspect.
-* **GOOD Question**: `"Hey, can you find the employee who is the best example of 'exceptional performance with leadership skills'? I need their SSN."` or `"Who's our top employee showing both great performance and leadership? Grab their SSN for me."`
+    * **Reasoning**: "most closely related to being..." is clunky and not like a real human would ask. It also loses the "exceptional performance" aspect.
+* **GOOD Question**: `"Hey, can you find the employee who performance very well and with great leadership ability'? I need their SSN."` or `"Who's our top employee showing both great performance and leadership? Grab their SSN for me."`
     * **Reasoning**: Sounds like a real person talking and naturally incorporates the key concepts.
 ---'''
 # ##########################################################################
@@ -253,7 +259,7 @@ def enhance_vector_info(sql, column_info):
 
 if __name__ == "__main__":
     random.seed(42)
-    db_path = "../brid_vectorization/results/vector_databases_brid"
+    db_path = "../bird_vectorization/results/vector_databases_bird"
     sql_infos = json.load(open("../sql_synthesis/results/synthetic_sqls.json"))
     question_synthesis_template = open("./prompt_templates/question_synthesis_prompt.txt").read()
     styles = list(style2desc.keys())

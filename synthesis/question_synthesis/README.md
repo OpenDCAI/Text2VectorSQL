@@ -10,6 +10,15 @@ Generate stylized natural language questions.
 2. Execute `python3 synthesize_question.py` to generate questions for the synthesized SQL queries. Note: Ensure the `llm_inference()` function is implemented to integrate your preferred LLM. For each prompt (SQL query), we sample multiple responses (questions) with a temperature of `0.8`.
 
 ## Step 2: Post-Processing
-
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
 1. Execute `python3 post_process_questions.py` to perform semantic consistency selection, ensuring the generated questions align closely with their corresponding SQL queries.
 2. The final synthetic `<question, SQL>` pairs will be saved to `./results/question_and_sql_pairs.json`.
+
+## Step 3: Add Candidate Sql
+```bash
+python synthesize_candidate.py --api_key <your api key>
+```
+1. Generate candidate sql.
+2. 2. The final synthetic file will be saved to `./results/candidate_sql.json`.

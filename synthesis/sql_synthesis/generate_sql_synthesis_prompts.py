@@ -65,7 +65,7 @@ Highly complex SQL queries may satisfy one or more of the following criteria:
 # ---- vec 查询复杂度描述 ---- #
 simple_vec_criterion   = '''**Criteria:** Basic vector similarity search on a single table.'''
 moderate_vec_criterion = '''**Criteria:** Vector search + simple joins / filters.'''
-complex_vec_criterion  = '''**Criteria:** Vector search combined with CTEs / hybrid search.'''
+complex_vec_criterion  = '''**Criteria:** Vector search combined with CTEs / hybird search.'''
 highly_complex_vec_criterion = '''**Criteria:** Multi-stage or recursive vector search with advanced analytics.'''
 
 
@@ -181,7 +181,7 @@ if __name__ == "__main__":
     random.seed(42)
 
     # 目录配置 --------------------------------------------------
-    db_path       = "../brid_vectorization/results/vector_databases_brid"
+    db_path       = "../bird_vectorization/results/vector_databases_bird"
     prompt_tpl    = open("./prompt_templates/sql_synthesis_prompt.txt",
                          encoding='utf-8').read()
     functions     = json.load(open("./prompt_templates/sqlite_funcs.json",

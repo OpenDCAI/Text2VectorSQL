@@ -1,283 +1,266 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """
 过滤 LLM 生成的 SQL：
 1. 仅保留 SELECT/CTE 查询
-2. 剔除语法错误
-3. 剔除执行超时
-4. 进行去重
-5. 统计信息并保存结果
-"""
+2. 剔除语法错误 / 执行错误 / 超时
+3. 去重
+4. 统计并写入结果
 
-import os
-import sys
-import re
-import time
-import json
-import multiprocessing as mp
+用法示例：
+    python post_process_sqls_new.py \
+        --db_dir ../bird_vectorization/results/vector_databases_bird \
+        --llm_json ./results/sql_synthesis.json \
+        --output   ./results/synthetic_sqls.json \
+        --cpus 10 \
+        --timeout 60
+"""
+import os, re, sys, time, json, argparse, multiprocessing as mp, traceback
+from typing import List, Dict, Tuple, Any
 
 from tqdm import tqdm
 from func_timeout import func_timeout, FunctionTimedOut
 import ijson
 
 # ----------------------------------------------------------
-# 1. 选择合适的 sqlite3 模块（优先 pysqlite3，自带最新版 SQLite）
+# 1. 选择 sqlite3 实现（优先 pysqlite3，自带最新版 SQLite）
 # ----------------------------------------------------------
 try:
     import pysqlite3 as sqlite3
-    print(f"使用 pysqlite3，SQLite 版本: {sqlite3.sqlite_version}")
+    print(f"✅ 使用 pysqlite3，SQLite 版本: {sqlite3.sqlite_version}")
 except ImportError:
     import sqlite3
-    print(f"使用系统自带 sqlite3，SQLite 版本: {sqlite3.sqlite_version}")
-    print("⚠️  如果后续仍出现 SQL logic error，可先安装 pysqlite3-binary：\n"
-          "   pip install pysqlite3-binary\n")
+    print(f"⚠️  使用系统自带 sqlite3，SQLite 版本: {sqlite3.sqlite_version}")
+    print("   如果后续仍出现 SQL logic error，可执行: pip install pysqlite3-binary\n")
 
 # ----------------------------------------------------------
-# 2. 加载向量/嵌入扩展所需的动态库
+# 2. 加载向量 / 嵌入扩展
 # ----------------------------------------------------------
-import sqlite_vec               # pip install sqlite_vec
-import sqlite_lembed            # pip install sqlite_lembed
-
+import sqlite_vec               # pip install sqlite-vec>=0.5.0
+import sqlite_lembed            # pip install sqlite-lembed>=0.2.3
 
 # ----------------------------------------------------------
-# 3. SQL 执行工具函数
+# 3. 全局常量与工具
 # ----------------------------------------------------------
 MODEL_NAME  = "all-MiniLM-L6-v2"
-MODEL_PATH  = "../all-MiniLM-L6-v2.e4ce9877.q8_0.gguf"      # 请根据实际路径调整
-REGISTER_SQL = """
+MODEL_PATH  = "../all-MiniLM-L6-v2.e4ce9877.q8_0.gguf"      # 请改成你的本地路径
+
+REGISTER_MODEL_SQL = """
 INSERT OR IGNORE INTO main.lembed_models (name, model)
 VALUES (?, lembed_model_from_file(?))
 """
 
-def execute_sql(sql: str, db_path: str):
+# 旧版扩展在 EXPLAIN 阶段会对含有 MATCH lembed(...) 的查询报错。
+SKIP_EXPLAIN_PATTERN = re.compile(r'MATCH\s+lembed\(', re.I)
+
+def _connect_sqlite(path: str) -> sqlite3.Connection:
+    conn = sqlite3.connect(path, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    sqlite_lembed.load(conn)
+    # 注册嵌入模型（第一次会真正插入，之后 IGNORE）
+    if not os.path.exists(MODEL_PATH):
+        raise FileNotFoundError(f"❌ 嵌入模型文件不存在: {MODEL_PATH}")
+    conn.execute(REGISTER_MODEL_SQL, (MODEL_NAME, MODEL_PATH))
+    conn.commit()
+    return conn
+
+# ----------------------------------------------------------
+# 4. 基础执行函数
+# ----------------------------------------------------------
+def execute_sql(sql: str, db_path: str) -> Tuple[Any, int]:
     """
-    在指定 sqlite 数据库上执行 SQL，返回 (结果, 列数)。
-    若出错则返回 (None, None) 并打印错误信息。
+    在 db_path 上执行 sql；成功返回 (rows, 列数)，失败抛异常
     """
     if not sql.strip():
-        return None, None
-
+        raise ValueError("空 SQL")
     conn = None
     try:
-        conn = sqlite3.connect(db_path, timeout=30)  # 最长等待 30 秒
-        conn.execute("PRAGMA journal_mode=WAL")      # 切到 WAL
-        # conn = sqlite3.connect(db_path)
-        conn.enable_load_extension(True)
-
-        # 加载扩展
-        sqlite_vec.load(conn)
-        sqlite_lembed.load(conn)
-
-        cursor = conn.cursor()
-
-        # 注册模型（仅首次插入时生效）
-        if not os.path.exists(MODEL_PATH):
-            print(f"❌ 模型文件不存在: {MODEL_PATH}")
-            return None, None
-
-        cursor.execute(REGISTER_SQL, (MODEL_NAME, MODEL_PATH))
-        conn.commit()
-
-        # 真正查询
-        cursor.execute("BEGIN")
-        cursor.execute(sql)
-        result = cursor.fetchall()
-        col_cnt = len(cursor.description)
-        cursor.execute("ROLLBACK")
-
-        return result, col_cnt
-
-    except Exception as e:
-        print(f"SQL 执行错误: {e}")
-        print(f"出错 SQL: {sql}")
-        return None, None
-
+        conn = _connect_sqlite(db_path)
+        cur  = conn.cursor()
+        cur.execute("BEGIN")
+        cur.execute(sql)
+        rows = cur.fetchall()
+        col_cnt = len(cur.description)
+        cur.execute("ROLLBACK")
+        return rows, col_cnt
     finally:
-        if conn is not None:
-            conn.close()
+        if conn: conn.close()
 
-
-# ----------------------------------------------------------
-# 4. 供多进程使用的包装函数
-# ----------------------------------------------------------
-def _execute_wrapper(idx, db_id, sql, complexity, timeout, db_dir):
+def explain_ok(sql: str, db_path: str) -> bool:
+    """
+    若 sql 通过 EXPLAIN 检查返回 True。
+    遇到扩展限制可通过 SKIP_EXPLAIN_PATTERN 跳过。
+    """
+    if SKIP_EXPLAIN_PATTERN.search(sql):
+        return True
     try:
-        res, col_cnt = func_timeout(
-            timeout,
-            execute_sql,
-            args=(sql, os.path.join(db_dir, db_id, db_id + ".sqlite"))
-        )
-
-        success = int(res is not None and col_cnt is not None)
-        row_cnt = len(res) if success else 0
-        col_cnt = col_cnt if success else 0
-
-        return [idx, db_id, sql, complexity, success, col_cnt, row_cnt]
-
-    except FunctionTimedOut:
-        return [idx, db_id, sql, complexity, 0, 0, 0]
-    except KeyboardInterrupt:
-        sys.exit(0)
-    except Exception:
-        return [idx, db_id, sql, complexity, 0, 0, 0]
-
-
-def _execute_callback(result):
-    idx, db_id, sql, complexity, success, col_cnt, rows = result
-    if success:
-        shared_results.append({
-            "db_id": db_id,
-            "sql": sql,
-            "complexity": complexity,
-            "column_count": col_cnt,
-            "rows": rows
-        })
-
-
-def remove_timeout_sqls_parallel(sql_infos, db_dir, num_cpus=10, timeout=10):
-    """
-    使用多进程并发执行 SQL，删除超时 / 报错 SQL。
-    """
-    batch_size = 1024
-    batches = [sql_infos[i:i + batch_size] for i in range(0, len(sql_infos), batch_size)]
-
-    for b_idx, batch in enumerate(batches):
-        print(f"并行执行进度: {b_idx + 1}/{len(batches)}")
-        with mp.Pool(processes=num_cpus) as pool:
-            for idx, info in enumerate(batch):
-                pool.apply_async(
-                    _execute_wrapper,
-                    args=(idx, info["db_id"], info["sql"], info["complexity"], timeout, db_dir),
-                    callback=_execute_callback
-                )
-            pool.close()
-            pool.join()
-        # 防止一次性开太多进程导致系统负载过高
-        time.sleep(8)
-
+        _ = execute_sql("EXPLAIN QUERY PLAN " + sql, db_path)
+        return True
+    except Exception as ex:
+        # 打开注释可调试
+        # print("EXPLAIN 失败:", ex, "\nSQL:", sql)
+        return False
 
 # ----------------------------------------------------------
-# 5. 一系列工具函数（与原脚本相同，稍作整理）
+# 5. 多进程包装
+# ----------------------------------------------------------
+def _worker(idx: int, db_id: str, sql: str, complexity: str,
+            timeout: int, db_dir: str):
+    db_path = os.path.join(db_dir, db_id, db_id + ".sqlite")
+    try:
+        rows, col_cnt = func_timeout(timeout, execute_sql, args=(sql, db_path))
+        return [idx, db_id, sql, complexity, True, col_cnt, len(rows)]
+    except FunctionTimedOut:
+        return [idx, db_id, sql, complexity, False, 0, 0]
+    except Exception:
+        return [idx, db_id, sql, complexity, False, 0, 0]
+
+def _callback(res):
+    idx, db_id, sql, complexity, ok, col_cnt, row_cnt = res
+    if ok:
+        shared_results.append(dict(
+            db_id=db_id, sql=sql, complexity=complexity,
+            column_count=col_cnt, rows=row_cnt
+        ))
+
+def parallel_execute(sql_infos: List[Dict], db_dir: str,
+                     num_cpus: int = 8, timeout: int = 30):
+    """
+    多进程并发执行 SQL，剔除超时 / 执行错误
+    """
+    batch = 1024
+    chunks = [sql_infos[i:i+batch] for i in range(0, len(sql_infos), batch)]
+    for i, part in enumerate(chunks, 1):
+        print(f"并行执行进度 {i}/{len(chunks)}")
+        with mp.Pool(num_cpus) as pool:
+            for idx, info in enumerate(part):
+                pool.apply_async(_worker,
+                                 args=(idx, info["db_id"], info["sql"],
+                                       info["complexity"], timeout, db_dir),
+                                 callback=_callback)
+            pool.close(); pool.join()
+        time.sleep(6)        # 给系统降温
+
+# ----------------------------------------------------------
+# 6. 若干帮助函数
 # ----------------------------------------------------------
 def parse_response(text: str) -> str:
-    """从 LLM 响应中截取最后一段 ```sql ... ``` 块"""
+    """提取最后一段 ```sql ... ```"""
     blocks = re.findall(r"```sql\s*(.*?)\s*```", text, re.S | re.I)
     return blocks[-1].strip() if blocks else ""
 
-
-def filter_select_sqls(sql_infos):
-    """仅保留 SELECT/CTE 类型查询"""
+def filter_select(sql_infos: List[Dict]) -> List[Dict]:
     out = []
     for info in sql_infos:
-        sql = re.sub(r'/\*.*?\*/', '', info["sql"], flags=re.S)      # /* ... */
-        sql = re.sub(r'--.*',        '', sql)
-        sql = sql.strip()
-        if sql.lower().startswith(("select", "with")):
+        sql = re.sub(r'/\*.*?\*/', '', info["sql"], flags=re.S)   # /* … */
+        sql = re.sub(r'--.*', '', sql)
+        if sql.lower().lstrip().startswith(("select", "with")):
+            info["sql"] = sql.strip()
             out.append(info)
     return out
 
-
-def execute_and_attach_plan(sql_infos, db_dir):
-    """利用 EXPLAIN QUERY PLAN 剔除语法错误"""
-    valid = []
-    for info in tqdm(sql_infos, desc="EXPLAIN"):
-        res, _ = execute_sql("EXPLAIN QUERY PLAN " + info["sql"],
-                             os.path.join(db_dir, info["db_id"], info["db_id"] + ".sqlite"))
-        if res is not None:
-            info["query_plan"] = str(res)
-            valid.append(info)
-    return valid
-
-
-def dedup_by_template(sql_infos):
-    """按照模板去重（把常量替换为 <value>）"""
-    def to_template(sql):
+def dedup_by_template(sql_infos: List[Dict]) -> List[Dict]:
+    def to_tpl(sql: str) -> str:
         pat = r"""
-            (?<!\w)'(?:\\.|[^'])*'   |   # 单引号字符串
-            (?<!\w)"(?:\\.|[^"])*"   |   # 双引号字符串
-            -?\b\d+(\.\d+)?([eE][-+]?\d+)?\b |  # 数字
+            (?<!\w)'(?:\\.|[^'])*' |       # 'str'
+            (?<!\w)"(?:\\.|[^"])*" |       # "str"
+            -?\b\d+(\.\d+)?([eE][-+]?\d+)?\b |  # number
             \bNULL\b | \bTRUE\b | \bFALSE\b
         """
-        tpl = re.sub(pat, "<value>", sql, flags=re.I | re.X)
-        tpl = re.sub(r'\s+', ' ', tpl).lower().strip()
-        return tpl
-
+        tpl = re.sub(pat, "<v>", sql, flags=re.I | re.X)
+        return re.sub(r'\s+', ' ', tpl).lower().strip()
     seen, uniq = set(), []
     for info in sql_infos:
-        tpl = to_template(info["sql"])
-        if tpl not in seen:
-            seen.add(tpl)
-            uniq.append(info)
+        k = to_tpl(info["sql"])
+        if k not in seen:
+            seen.add(k); uniq.append(info)
     return uniq
 
-
-def analyze_column_count(sql_infos):
+def analyze_col_cnt(sql_infos):
     cnt = {}
-    for info in sql_infos:
-        cnt[info["column_count"]] = cnt.get(info["column_count"], 0) + 1
+    for x in sql_infos:
+        cnt[x["column_count"]] = cnt.get(x["column_count"], 0) + 1
     print("列数分布:", cnt)
 
-
-def load_ndjson(path):
+def load_ndjson(path: str) -> List[Dict]:
     data = []
     with open(path, 'r', encoding='utf-8') as f:
-        for obj in tqdm(ijson.items(f, 'item')):
+        for obj in tqdm(ijson.items(f, 'item'), desc="加载 LLM 输出"):
             data.append(obj)
     return data
 
-
 # ----------------------------------------------------------
-# 6. 主流程
+# 7. 主流程
 # ----------------------------------------------------------
-if __name__ == "__main__":
+def main(args):
     mp.set_start_method("spawn", force=True)
 
-    DB_DIR         = "../brid_vectorization/results/vector_databases_brid"
-    LLM_JSON_FILE  = "./results/sql_synthesis.json"
-    OUTPUT_FILE    = "./results/synthetic_sqls.json"
-
-    # 读取 LLM 响应
-    responses = load_ndjson(LLM_JSON_FILE)
-
-    synthesized = []
-    for r in responses:
+    # 读取 LLM 输出
+    llm_resps = load_ndjson(args.llm_json)
+    sql_infos = []
+    for r in llm_resps:
         sql = parse_response(r["response"])
         if not sql:
             continue
-        synthesized.append({
-            "db_id": r["db_id"][:-3] if r["db_id"].endswith(".db") else r["db_id"],
-            "sql": sql,
-            "complexity": r["prompt"].split("Ensure the SQL query matches the ")[1]
-                            .split(" level, defined as follows:")[0]
-        })
+        db_id = r["db_id"][:-3] if r["db_id"].endswith(".db") else r["db_id"]
+        # 这里的复杂度解析可按自己的 prompt 来改
+        complexity = r.get("complexity") or \
+                     r["prompt"].split("Ensure the SQL query matches the ")[1] \
+                                 .split(" level")[0]
+        sql_infos.append(dict(db_id=db_id, sql=sql, complexity=complexity))
 
-    print("原始 SQL 数量:", len(synthesized))
+    print("原始 SQL 数量:", len(sql_infos))
 
-    # 1) 去掉非 SELECT
-    synthesized = filter_select_sqls(synthesized)
-    print("仅保留 SELECT 后:", len(synthesized))
+    # 1. 仅保留 SELECT / CTE
+    sql_infos = filter_select(sql_infos)
+    print("仅保留 SELECT 后:", len(sql_infos))
 
-    # 2) 去掉语法错误
-    synthesized = execute_and_attach_plan(synthesized, DB_DIR)
-    print("去掉语法错误后:", len(synthesized))
+    # 2. EXPLAIN 过滤语法错误
+    ok = []
+    for info in tqdm(sql_infos, desc="EXPLAIN"):
+        if explain_ok(info["sql"],
+                      os.path.join(args.db_dir, info["db_id"],
+                                   info["db_id"] + ".sqlite")):
+            ok.append(info)
+    sql_infos = ok
+    print("去掉语法错误后:", len(sql_infos))
 
-    # 3) 并发执行，去掉超时
-    manager = mp.Manager()
-    shared_results = manager.list()
-    remove_timeout_sqls_parallel(synthesized, DB_DIR, num_cpus=10, timeout=60)
-    synthesized = list(shared_results)
-    print("去掉超时后:", len(synthesized))
-    analyze_column_count(synthesized)
+    # 3. 多进程执行，过滤运行错误 / 超时
+    global shared_results
+    shared_results = mp.Manager().list()
+    parallel_execute(sql_infos, args.db_dir,
+                     num_cpus=args.cpus, timeout=args.timeout)
+    sql_infos = list(shared_results)
+    print("去掉超时后:", len(sql_infos))
+    analyze_col_cnt(sql_infos)
 
-    # 4) 按模板去重
-    synthesized = dedup_by_template(synthesized)
-    print("模板级去重后:", len(synthesized))
-    analyze_column_count(synthesized)
+    # 4. 去重
+    sql_infos = dedup_by_template(sql_infos)
+    print("模板级去重后:", len(sql_infos))
+    analyze_col_cnt(sql_infos)
 
-    # 5) 保存结果
-    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(synthesized, f, indent=2, ensure_ascii=False)
+    # 5. 保存
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    with open(args.output, "w", encoding="utf-8") as f:
+        json.dump(sql_infos, f, indent=2, ensure_ascii=False)
+    print(f"✅ 处理完成，结果写入 {args.output}")
 
-    print(f"✅ 处理完成，结果写入 {OUTPUT_FILE}")
+# ----------------------------------------------------------
+# 8. CLI
+# ----------------------------------------------------------
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--db_dir",   required=True,
+                        help="包含多个 *.sqlite 子目录的根路径")
+    parser.add_argument("--llm_json", required=True,
+                        help="LLM 生成结果 (ndjson)")
+    parser.add_argument("--output",   required=True,
+                        help="输出 JSON 文件")
+    parser.add_argument("--cpus",     type=int, default=8,
+                        help="并发进程数")
+    parser.add_argument("--timeout",  type=int, default=30,
+                        help="单条 SQL 执行超时时间 (秒)")
+    args = parser.parse_args()
+    main(args)

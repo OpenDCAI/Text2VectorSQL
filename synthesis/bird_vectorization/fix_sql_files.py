@@ -3,7 +3,7 @@ import sys
 
 # --- 配置 ---
 # 请确保这个路径指向你存放 .sql 文件的目录
-SQL_SCRIPT_DIR = "results/vector_sql_brid" # 或者 "results/vector_sql_spider1"
+SQL_SCRIPT_DIR = "results/vector_sql_bird" # 或者 "results/vector_sql_spider1"
 # --- 配置结束 ---
 
 # 这是需要追加到文件末尾的文本
