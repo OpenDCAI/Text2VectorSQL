@@ -12,7 +12,7 @@ python generate_schema.py --db-dir train/toy_spider --output-file train/table.js
 # 加强schema
 先使用enhance_tables_toy.py往schema加入每个数据表格的示例信息，运行：
 ```bash
-python enhance_tabels_toy.py
+python enhance_tables_toy.py
 ```
 
 # 找到语言信息很丰富的列
