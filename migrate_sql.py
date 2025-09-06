@@ -1,176 +1,254 @@
 import re
-import argparse
+import uuid
 
-def translate_sqlite_vec_to_clickhouse(sqlite_sql: str, distance_func: str = 'cosineDistance') -> str:
+# --- 正则表达式常量 ---
+
+# 匹配 "table.column_embedding MATCH lembed('model', 'text')"
+# 增加了对表别名的捕获
+MATCH_PATTERN = re.compile(
+    r'\b(\w+)\.(\w+_embedding)\s+MATCH\s+lembed\s*\(\s*\'(.*?)\'\s*,\s*\'(.*?)\'\s*\)',
+    re.IGNORECASE | re.DOTALL
+)
+
+# 匹配 "AND table.k = N" 或 "AND k = N"
+K_PATTERN = re.compile(r'AND\s+(?:(\w+)\.)?k\s*=\s*(\d+)', re.IGNORECASE)
+
+# 匹配 CTE: WITH alias AS (...)
+CTE_PATTERN = re.compile(r'\bWITH\b\s+(.+?)\s+AS\s+\((.*)\)\s*(SELECT.*)', re.IGNORECASE | re.DOTALL)
+
+def process_select_block(sql_block: str, distance_func: str = 'cosineDistance') -> str:
     """
-    将包含 sqlite-vec 向量搜索语法的 SQL 查询自动转换为 ClickHouse 兼容的语法。
-
-    Args:
-        sqlite_sql (str): 原始的 SQLite 查询语句。
-        distance_func (str, optional): 用于 ClickHouse 的距离计算函数。
-                                       默认为 'cosineDistance'，可以是 'L2Distance' 等。
-
-    Returns:
-        str: 转换后的 ClickHouse 查询语句。
+    处理一个独立的 SELECT...FROM...WHERE 块，核心转换逻辑在此。
     """
-    # 移除 SQL 语句中的换行符和多余空格，便于正则处理
-    sql = re.sub(r'\s+', ' ', sqlite_sql.strip())
-    # 移除多余 ;
-    sql = sql.rstrip(';')
-
-    # 1. 判断是否为向量搜索查询
-    if "MATCH lembed" not in sql:
-        print("INFO: 未检测到 'MATCH lembed' 关键字，返回原始 SQL。")
-        return sqlite_sql
-
-    # 2. 提取向量搜索的关键信息 (MATCH lembed 子句)
-    # 正则表达式: 匹配 "table.column_embedding MATCH lembed('model', 'text')"
-    match_pattern = re.compile(
-        r'(\w+\.)?(\w+_embedding)\s+MATCH\s+lembed\s*\(\s*\'(.*?)\'\s*,\s*\'(.*?)\'\s*\)',
-        re.IGNORECASE
-    )
-    match_info = match_pattern.search(sql)
-
-    if not match_info:
-        raise ValueError("无法解析 'MATCH lembed' 子句。请检查语法。")
-
-    table_prefix = match_info.group(1) or ''
-    embedding_col = table_prefix + match_info.group(2)
-    model_name = match_info.group(3)
-    embedding_text = match_info.group(4)
-
-    # 3. 提取 Top-K 限制 (k=N 或 LIMIT N)
-    limit = None
-    # 优先匹配 "AND k = N"
-    k_pattern = re.compile(r'AND\s+(?:\w+\.)?k\s*=\s*(\d+)', re.IGNORECASE)
-    k_match = k_pattern.search(sql)
-    if k_match:
-        limit = k_match.group(1)
-        # 从原始 SQL 中移除 k=N 条件，避免干扰后续的 WHERE 子句提取
-        sql = k_pattern.sub('', sql)
-    else:
-        # 如果没有 k=N，则查找 LIMIT N
-        limit_pattern = re.compile(r'LIMIT\s+(\d+)', re.IGNORECASE)
-        limit_match = limit_pattern.search(sql)
-        if limit_match:
-            limit = limit_match.group(1)
-            sql = limit_pattern.sub('', sql)
-
-    if not limit:
-        raise ValueError("向量搜索查询必须包含 'k=N' 或 'LIMIT N' 约束。")
-
-    # 4. 从 SQL 中移除已处理的 MATCH 子句，得到一个 "干净" 的基础查询
-    sql = match_pattern.sub('', sql)
-
-    # 5. 提取 SQL 的主要部分 (SELECT, FROM, WHERE)
-    select_pattern = re.compile(r'SELECT\s+(.*?)\s+FROM', re.IGNORECASE | re.DOTALL)
-    select_match = select_pattern.search(sql)
-    if not select_match:
-        raise ValueError("无法解析 SELECT ... FROM 结构。")
     
-    select_cols_str = select_match.group(1).strip()
+    # 1. 查找此块中所有的向量搜索请求
+    vector_searches = {}
     
-    # 提取 FROM 和 WHERE 之间的部分
-    # 我们找到 FROM 的起始位置和 WHERE 的起始位置
-    from_start_index = sql.lower().find(' from ') + len(' from ')
-    where_start_index = sql.lower().find(' where ')
-    
-    if where_start_index != -1:
-        from_clause = sql[from_start_index:where_start_index].strip()
-        # 提取 WHERE 之后的所有剩余条件
-        # 注意：需要清理掉可能由移除 MATCH 和 k=N 留下的多余 AND
-        remaining_where_clause = sql[where_start_index + len(' where '):].strip()
-        remaining_where_clause = re.sub(r'^\s*AND\s+', '', remaining_where_clause).strip()
-        remaining_where_clause = re.sub(r'\s+AND\s+AND\s+', ' AND ', remaining_where_clause).strip()
-        remaining_where_clause = re.sub(r'\s+AND\s*$', '', remaining_where_clause).strip()
-    else:
-        from_clause = sql[from_start_index:].strip()
-        remaining_where_clause = ""
+    # 使用 finditer 查找所有 MATCH 子句
+    for match in MATCH_PATTERN.finditer(sql_block):
+        alias = match.group(1).lower()
+        if alias not in vector_searches:
+            vector_searches[alias] = []
         
-    # 如果原始 SELECT 中包含了隐式的 distance 列，我们将其移除，因为 ClickHouse 会显式计算
-    select_cols_list = [col.strip() for col in select_cols_str.split(',')]
-    select_cols_list = [col for col in select_cols_list if 'distance' not in col.lower()]
-    cleaned_select_cols = ', '.join(select_cols_list)
+        search_info = {
+            "full_match": match.group(0),
+            "alias": alias,
+            "column": match.group(2),
+            "model": match.group(3),
+            "text": match.group(4),
+            "k": None,
+            "distance_alias": f"distance_{alias}_{uuid.uuid4().hex[:4]}" # 保证唯一
+        }
+        vector_searches[alias].append(search_info)
 
+    # 如果没有向量搜索，直接返回原始块
+    if not vector_searches:
+        return sql_block
 
-    # 6. 组装 ClickHouse 查询
+    # 2. 为每个找到的向量搜索匹配其 'k' 值
+    cleaned_sql = sql_block
+    for k_match in K_PATTERN.finditer(sql_block):
+        k_alias = k_match.group(1)
+        k_value = k_match.group(2)
+        
+        # 找到这个 k 对应的 search_info 并赋值
+        target_alias = k_alias.lower() if k_alias else None
+        if target_alias and target_alias in vector_searches:
+            # 假定每个表只有一个MATCH
+            vector_searches[target_alias][0]['k'] = k_value
+        # 如果k没有别名，尝试匹配到唯一的那个search
+        elif not target_alias and len(vector_searches) == 1:
+            key = list(vector_searches.keys())[0]
+            vector_searches[key][0]['k'] = k_value
+            
+    # 清理原始SQL中的 k=N 子句
+    cleaned_sql = K_PATTERN.sub('', cleaned_sql)
+
+    # 3. 解析 FROM/JOIN 子句，找到原始表名和别名
+    from_clause_match = re.search(r'\bFROM\b(.*?)(?:\bWHERE\b|\bGROUP BY\b|\bORDER BY\b|\bLIMIT\b|\)$|$)', cleaned_sql, re.IGNORECASE | re.DOTALL)
+    if not from_clause_match:
+        raise ValueError("无法解析 FROM 子句。")
     
-    # WITH 子句：使用一个假设的 embed 函数来表示向量化过程
-    with_clause = f"WITH embed('{model_name}', '{embedding_text}') AS reference_vector"
+    from_clause = from_clause_match.group(1).strip()
+    
+    # 4. 重写 FROM 子句：将原始表替换为向量搜索子查询
+    rewritten_from_clause = from_clause
+    with_clauses = []
 
-    # SELECT 子句：包含原始列和新的距离计算列
-    new_select_clause = f"SELECT {cleaned_select_cols}, {distance_func}({embedding_col}, reference_vector) AS distance"
+    table_pattern = re.compile(r'\b(city|farm_competition|competition_record|farm)\s+(?:AS\s+)?(\w+)\b', re.IGNORECASE)
+    
+    # 存储原始表名和别名的映射
+    table_alias_map = {m.group(2).lower(): m.group(1) for m in table_pattern.finditer(from_clause)}
 
-    # WHERE 子句
-    where_clause = ""
-    if remaining_where_clause:
-        where_clause = f"WHERE {remaining_where_clause}"
+    for alias, searches in vector_searches.items():
+        if alias not in table_alias_map:
+            continue # 如果找不到别名对应的表，暂时跳过
+        
+        original_table_name = table_alias_map[alias]
+        
+        for search in searches:
+            if not search['k']:
+                raise ValueError(f"未找到与别名 '{alias}' 匹配的 'k=N' 约束。")
+            
+            # 创建 WITH 子句
+            ref_vector_name = f"ref_vector_{alias}"
+            with_clauses.append(f"WITH embed('{search['model']}', '{search['text']}') AS {ref_vector_name}")
+            
+            # 创建向量搜索子查询
+            subquery = (
+                f"(SELECT *, {distance_func}({search['column']}, {ref_vector_name}) AS {search['distance_alias']} "
+                f"FROM {original_table_name} "
+                f"ORDER BY {search['distance_alias']} ASC "
+                f"LIMIT {search['k']})"
+            )
+            
+            # 在 FROM 子句中用子查询替换原表
+            # 使用更精确的正则替换，避免错误替换
+            table_ref_pattern = re.compile(fr'\b{original_table_name}\s+(?:AS\s+)?{alias}\b', re.IGNORECASE)
+            rewritten_from_clause = table_ref_pattern.sub(f"{subquery} AS {alias}", rewritten_from_clause)
+            
+            # 清理原始SQL中的 MATCH 子句
+            cleaned_sql = cleaned_sql.replace(search['full_match'], '')
+            
+            # 替换 SELECT 和 ORDER BY 中的 'distance' 引用
+            select_dist_pattern = re.compile(fr'\b{alias}\.distance\b(\s+AS\s+\w+)?', re.IGNORECASE)
+            cleaned_sql = select_dist_pattern.sub(f"{search['distance_alias']}\\1", cleaned_sql)
 
-    # ORDER BY 和 LIMIT 子句
-    order_by_clause = "ORDER BY distance ASC"
-    limit_clause = f"LIMIT {limit}"
+    # 5. 清理 WHERE 子句中可能残留的 'AND'
+    where_match = re.search(r'(\bWHERE\b)(.*)', cleaned_sql, re.IGNORECASE | re.DOTALL)
+    if where_match:
+        where_keyword = where_match.group(1)
+        where_content = where_match.group(2)
+        
+        # 移除开头、结尾和连续的 AND
+        where_content = re.sub(r'^\s*AND\s+', '', where_content.strip()).strip()
+        where_content = re.sub(r'\s+AND\s+AND\s+', ' AND ', where_content).strip()
+        where_content = re.sub(r'\s+AND\s*$', '', where_content).strip()
 
-    # 最终组合
-    clickhouse_sql = (
-        f"{with_clause}\n"
-        f"{new_select_clause}\n"
-        f"FROM {from_clause}\n"
-        f"{where_clause}\n"
-        f"{order_by_clause}\n"
-        f"{limit_clause};"
-    ).replace('\n\n', '\n') # 清理空行
+        if where_content:
+            cleaned_sql = cleaned_sql[:where_match.start(2)] + " " + where_content
+        else: # 如果 WHERE 子句变空，则移除整个 WHERE
+            cleaned_sql = cleaned_sql[:where_match.start(1)] + " " + cleaned_sql[where_match.end(2):]
 
-    return clickhouse_sql
+    # 6. 重新组装整个查询
+    # 将 WITH 子句放在最前面
+    final_with_clause = "\n".join(with_clauses)
+    
+    # 找到原始 SELECT 关键字，将重写的 FROM 子句插入
+    final_sql_parts = re.split(r'\bFROM\b', cleaned_sql, 1, re.IGNORECASE)
+    final_sql = final_sql_parts[0] + "FROM " + rewritten_from_clause
+    
+    # 找到原始 FROM 子句结束的位置，拼接剩余部分
+    original_from_end = from_clause_match.end(0)
+    remaining_sql = sql_block[original_from_end:]
+    
+    # 对剩余部分进行清理
+    remaining_sql = K_PATTERN.sub('', remaining_sql)
+    for alias, searches in vector_searches.items():
+        for search in searches:
+            remaining_sql = remaining_sql.replace(search['full_match'], '')
+            select_dist_pattern = re.compile(fr'\b{alias}\.distance\b(\s+AS\s+\w+)?', re.IGNORECASE)
+            remaining_sql = select_dist_pattern.sub(f"{search['distance_alias']}\\1", remaining_sql)
+            
+    # 再次清理 WHERE 子句
+    if ' WHERE ' in remaining_sql.upper():
+        where_parts = re.split(r'\bWHERE\b', remaining_sql, 1, re.IGNORECASE)
+        where_content = where_parts[1]
+        where_content = re.sub(r'^\s*AND\s+', '', where_content.strip()).strip()
+        where_content = re.sub(r'\s+AND\s+AND\s+', ' AND ', where_content).strip()
+        where_content = re.sub(r'\s+AND\s*$', '', where_content).strip()
+        if where_content:
+            remaining_sql = where_parts[0] + " WHERE " + where_content
+        else:
+            remaining_sql = where_parts[0]
 
-# --- 主程序入口 ---
-def main():
-    parser = argparse.ArgumentParser(description="将 SQLite-vec SQL 查询转换为 ClickHouse 语法。")
-    parser.add_argument(
-        "sqlite_query",
-        type=str,
-        help="要转换的 SQLite 查询语句字符串。"
+    # 重新拼接
+    final_sql = final_sql_parts[0] + " FROM " + rewritten_from_clause + " " + remaining_sql
+    
+    return f"{final_with_clause}\n{final_sql}".strip()
+
+def translate_sql_recursively(sql: str) -> str:
+    """
+    递归地解析和转换 SQL 语句，支持 CTE 和子查询。
+    """
+    sql = sql.strip()
+    
+    # 检查并处理 CTE
+    cte_match = CTE_PATTERN.match(sql)
+    if cte_match:
+        cte_name = cte_match.group(1)
+        cte_body = cte_match.group(2)
+        main_query = cte_match.group(3)
+        
+        # 递归转换 CTE 的主体
+        translated_cte_body = translate_sql_recursively(cte_body)
+        
+        # 递归转换主查询
+        translated_main_query = translate_sql_recursively(main_query)
+        
+        return f"WITH {cte_name} AS (\n{translated_cte_body}\n)\n{translated_main_query}"
+    
+    # 检查并处理嵌套子查询 (简化版：处理 FROM/JOIN 中的子查询)
+    # 这是一个复杂的问题，这里做一个简化的示例逻辑
+    # 一个完整的方案需要一个真正的SQL解析器
+    # for subquery_match in re.finditer(r'\(\s*(SELECT .*?)\s*\)', sql, re.IGNORECASE | re.DOTALL):
+    #     subquery_sql = subquery_match.group(1)
+    #     translated_subquery = translate_sql_recursively(subquery_sql)
+    #     sql = sql.replace(subquery_sql, translated_subquery)
+
+    # 如果不是 CTE 或已知子查询模式，则作为独立的 SELECT 块处理
+    return process_select_block(sql)
+
+# --- 主程序 ---
+if __name__ == '__main__':
+    complex_sqlite_sql = """
+    WITH RankedCities AS (
+      SELECT
+        c.City_ID,
+        c.Official_Name,
+        c.Status,
+        c.Population,
+        f.Farm_ID,
+        f.Year,
+        cr.Rank,
+        fc.Theme,
+        fc.Hosts,
+        c.distance as city_distance,
+        fc.distance as theme_distance
+      FROM
+        city c
+      JOIN
+        farm_competition fc ON c.City_ID = fc.Host_city_ID
+      JOIN
+        competition_record cr ON fc.Competition_ID = cr.Competition_ID
+      JOIN
+        farm f ON cr.Farm_ID = f.Farm_ID
+      WHERE
+        c.Status_embedding MATCH lembed('all-MiniLM-L6-v2', 'Major city status with high population density') AND c.k = 5
+        AND fc.Theme_embedding MATCH lembed('all-MiniLM-L6-v2', 'Annual agricultural showcase with international participants') AND fc.k = 3
+        AND f.Year > 2010
+      ORDER BY
+        city_distance, theme_distance
+      LIMIT 10
     )
-    parser.add_argument(
-        "--dist",
-        type=str,
-        default="cosineDistance",
-        choices=['cosineDistance', 'L2Distance'],
-        help="在 ClickHouse 中使用的距离函数。"
-    )
-    args = parser.parse_args()
+    SELECT
+      Official_Name,
+      MAX(Population) AS Max_Population
+    FROM
+      RankedCities
+    GROUP BY
+      Official_Name
+    ORDER BY
+      Max_Population DESC;
+    """
 
-    print("--- 原始 SQLite 查询 ---")
-    print(args.sqlite_query)
-    print("\n" + "="*30 + "\n")
+    print("--- 原始复杂 SQLite 查询 ---")
+    print(complex_sqlite_sql)
+    print("\n" + "="*40 + "\n")
 
     try:
-        clickhouse_query = translate_sqlite_vec_to_clickhouse(args.sqlite_query, distance_func=args.dist)
+        clickhouse_query = translate_sql_recursively(complex_sqlite_sql)
         print("--- 转换后的 ClickHouse 查询 ---")
         print(clickhouse_query)
     except ValueError as e:
-        print(f"转换错误: {e}")
-
-
-if __name__ == '__main__':
-    # 为了直接在脚本中运行示例，可以取消下面的注释
-    example_sql = "SELECT COUNT(m.Musical_ID) FROM musical m JOIN actor a ON m.Musical_ID = a.Musical_ID WHERE m.Category_embedding MATCH lembed('all-MiniLM-L6-v2', 'Outstanding performance in musical theater') AND m.k = 3 AND a.age BETWEEN 20 AND 40 AND m.Year >= 2000 AND m.Result = 'Won';"
-    another_example = "SELECT Name, Year, distance FROM musical WHERE Category_embedding MATCH lembed('all-MiniLM-L6-v2', 'Best Choreography') AND Year > 1990 and k = 5"
-
-    try:
-        print("--- 示例 1 ---")
-        print(f"原始SQL: {example_sql}\n")
-        ch_sql = translate_sqlite_vec_to_clickhouse(example_sql)
-        print(f"转换后SQL:\n{ch_sql}")
-        print("\n" + "="*30 + "\n")
-        
-        print("--- 示例 2 ---")
-        print(f"原始SQL: {another_example}\n")
-        ch_sql_2 = translate_sqlite_vec_to_clickhouse(another_example)
-        print(f"转换后SQL:\n{ch_sql_2}")
-        
-    except ValueError as e:
-        print(f"转换错误: {e}")
-
-    # 命令行调用逻辑
-    # 如果希望通过命令行参数运行，请保持 main() 的原始结构并从命令行调用。
-    # main()
+        print(f"\n转换时发生错误: {e}")
