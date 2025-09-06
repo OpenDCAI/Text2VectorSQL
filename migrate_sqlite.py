@@ -36,16 +36,61 @@ def translate_type_for_postgres(sqlite_type):
     return 'TEXT' # 默认回退
 
 def translate_schema_for_postgres(create_sql):
-    """将 SQLite 的 CREATE TABLE 语句翻译为 PostgreSQL 兼容格式"""
-    # 统一将 SQLite 的引用符号 ` 替换为 PostgreSQL 的 "
+    """将 SQLite 的 CREATE TABLE 语句（包括 vec0 虚拟表）翻译为 PostgreSQL 兼容格式"""
+    # 检查是否为 sqlite-vec 虚拟表
+    is_virtual_vec_table = 'USING vec0' in create_sql.upper() and 'VIRTUAL' in create_sql.upper()
+
+    # 统一处理引号
     create_sql = create_sql.replace('`', '"')
-    
-    # 移除 AUTOINCREMENT 关键字，PostgreSQL 使用 SERIAL/BIGSERIAL
+
+    if is_virtual_vec_table:
+        # 从 "CREATE VIRTUAL TABLE" 中提取表名
+        table_name_match = re.search(
+            r'CREATE\s+VIRTUAL\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?\s*([`"\[]\S+[`"\]]|\S+)',
+            create_sql, flags=re.IGNORECASE
+        )
+        if not table_name_match:
+            raise ValueError(f"无法从 vec0 SQL 中解析表名: {create_sql}")
+        table_name = table_name_match.group(1)
+
+        # 从 "USING vec0(...)" 中提取列定义
+        columns_part_match = re.search(r'USING\s+vec0\s*\((.*)\)', create_sql, re.IGNORECASE | re.DOTALL)
+        if not columns_part_match:
+            raise ValueError(f"无法从 vec0 SQL 中解析列定义: {create_sql}")
+        columns_part = columns_part_match.group(1)
+
+        columns_defs = re.split(r',(?![^\(]*\))', columns_part)
+        new_defs = []
+        for col_def in columns_defs:
+            col_def = col_def.strip()
+            if not col_def:
+                continue
+
+            # 匹配向量列，例如 "col_embedding float[384]"
+            vec_col_match = re.match(r'([`"\[]?\w+[`"\]]?)\s+float\s*\[\s*(\d+)\s*\]', col_def, re.IGNORECASE)
+            if vec_col_match:
+                col_name = vec_col_match.group(1).replace('`', '"')
+                dimension = int(vec_col_match.group(2))
+                # 翻译为 pgvector 类型
+                new_defs.append(f'{col_name} vector({dimension})')
+            else:
+                # 处理虚拟表定义中的普通列
+                col_match = re.match(r'([`"\[]?\w+[`"\]]?)\s+([A-Z]+(?:\(\d+(?:,\d+)?\))?)(.*)', col_def, flags=re.IGNORECASE)
+                if col_match:
+                    col_name, col_type, constraints = col_match.groups()
+                    col_name = col_name.replace('`', '"')
+                    pg_type = translate_type_for_postgres(col_type)
+                    new_defs.append(f'{col_name} {pg_type}{constraints}')
+                else:
+                    new_defs.append(col_def) # 回退
+
+        # 构建标准的 CREATE TABLE 语句
+        return f"CREATE TABLE {table_name} ({', '.join(new_defs)})"
+
+    # --- 对标准表的现有处理逻辑 ---
     create_sql = re.sub(r'\bAUTOINCREMENT\b', '', create_sql, flags=re.IGNORECASE)
-    # 将 INTEGER PRIMARY KEY 转换为 SERIAL PRIMARY KEY
     create_sql = re.sub(r'INTEGER\s+PRIMARY\s+KEY', 'SERIAL PRIMARY KEY', create_sql, flags=re.IGNORECASE)
 
-    # 从 CREATE 语句中提取列定义部分
     try:
         table_name_match = re.search(r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?\s*([`"\[]\S+[`"\]]|\S+)\s*(\(.*\))', create_sql, flags=re.IGNORECASE | re.DOTALL)
         if not table_name_match:
@@ -57,10 +102,14 @@ def translate_schema_for_postgres(create_sql):
         defs_content = defs_part.strip()[1:-1]
         
         defs_list = re.split(r',(?![^\(]*\))', defs_content)
-
         new_defs = []
         for definition in defs_list:
             definition = definition.strip()
+            
+            if 'FOREIGN KEY' in definition.upper():
+                print(f'  - 忽略外键约束: {definition}')
+                continue
+
             if definition.upper().startswith(('PRIMARY', 'FOREIGN', 'UNIQUE', 'CONSTRAINT', 'CHECK')):
                 new_defs.append(definition)
                 continue
@@ -96,11 +145,6 @@ def translate_type_for_clickhouse(sqlite_type):
 
 def translate_schema_for_clickhouse(create_sql):
     """将 SQLite 的 CREATE TABLE 语句（包括 vec0 虚拟表）翻译为 ClickHouse 兼容格式"""
-    # 更新正则表达式以匹配 "CREATE TABLE" 或 "CREATE VIRTUAL TABLE"
-    # table_name_match = re.search(
-    #     r'CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?\s*([`"\[]\S+[`"\]]|\S+)\s*\(',
-    #     create_sql, flags=re.IGNORECASE
-    # )
     table_name_match = re.search(
         r'CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?\s*([`"\[]\S+[`"\]]|\S+)',
         create_sql, flags=re.IGNORECASE
@@ -125,21 +169,17 @@ def translate_schema_for_clickhouse(create_sql):
         if not col_def or col_def.upper().startswith(('PRIMARY', 'FOREIGN', 'UNIQUE', 'CONSTRAINT', 'CHECK')):
             continue
 
-        # 优先匹配 sqlite-vec 的向量列语法, e.g., "col_embedding float[384]"
         vec_col_match = re.match(r'([`"\[]?\w+[`"\]]?)\s+float\s*\[\s*(\d+)\s*\]', col_def, re.IGNORECASE)
         if vec_col_match:
             col_name = vec_col_match.group(1).strip('`"')
             dimension = int(vec_col_match.group(2))
             
-            # 翻译为 ClickHouse 向量类型
             lines.append(f'`{col_name}` Array(Float32)')
             
-            # 为该列自动添加向量索引
             indices.append(
                 f"INDEX `idx_vec_{col_name}` `{col_name}` TYPE vector_similarity('hnsw', 'L2Distance', {dimension}) GRANULARITY 1000"
             )
         else:
-            # 处理普通列
             parts = re.split(r'\s+', col_def, 2)
             col_name = parts[0].strip('`"')
             
@@ -163,12 +203,16 @@ def translate_schema_for_clickhouse(create_sql):
 @contextmanager
 def sqlite_conn(db_path):
     conn = sqlite3.connect(db_path)
-    conn.enable_load_extension(True)
-    import sqlite_vec
-    import sqlite_lembed
-    sqlite_vec.load(conn)
-    sqlite_lembed.load(conn)
-    print("sqlite-vec 扩展已成功加载。")
+    try:
+        conn.enable_load_extension(True)
+        import sqlite_vec
+        # import sqlite_lembed # 迁移时通常不需要加载 lembed
+        sqlite_vec.load(conn)
+        # sqlite_lembed.load(conn)
+        print("✔ sqlite-vec 扩展已成功加载。")
+    except Exception as e:
+        print(f"🟡 警告: 加载 sqlite-vec 扩展失败: {e}。如果数据库不含向量表，可忽略此消息。")
+
     try:
         yield conn
     finally:
@@ -177,8 +221,7 @@ def sqlite_conn(db_path):
 def get_sqlite_schema(conn):
     """获取 SQLite 数据库中所有表的名称和 CREATE 语句"""
     cursor = conn.cursor()
-    # 同时获取普通表和虚拟表
-    cursor.execute("SELECT name, sql FROM sqlite_master WHERE (type='table' OR type='view') AND name NOT LIKE 'sqlite_%';")
+    cursor.execute("SELECT name, sql FROM sqlite_master WHERE (type='table' OR type='view') AND name NOT LIKE 'sqlite_%' AND sql IS NOT NULL;")
     schema = cursor.fetchall()
     if not schema:
         raise RuntimeError("源 SQLite 数据库中没有找到任何表。")
@@ -210,7 +253,7 @@ def get_vec_info(conn):
 
 
 def migrate_to_postgres(args, db_name):
-    """执行到 PostgreSQL 的迁移"""
+    """执行到 PostgreSQL 的迁移（支持 sqlite-vec）"""
     if not psycopg2:
         print("错误：psycopg2-binary 未安装。请运行 'pip install psycopg2-binary'")
         return
@@ -226,31 +269,53 @@ def migrate_to_postgres(args, db_name):
         )
         conn_admin.autocommit = True
         with conn_admin.cursor() as cur:
-            cur.execute(f"SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
             if cur.fetchone():
                 print(f"数据库 '{db_name}' 已存在。")
             else:
                 print(f"正在创建数据库: {db_name}")
-                cur.execute(f"CREATE DATABASE \"{db_name}\"") # 使用引号以防特殊字符
+                cur.execute(f'CREATE DATABASE "{db_name}"')
                 print(f"✔ 数据库 '{db_name}' 创建成功。")
 
         # 2. 连接到新创建的数据库进行迁移
         print(f"正在连接到新数据库 '{db_name}'...")
         with psycopg2.connect(host=args.host, port=args.port, user=args.user, password=args.password, dbname=db_name) as target_conn:
             with target_conn.cursor() as target_cur:
+                # 启用 pgvector 扩展
+                print("  - 正在启用 pgvector 扩展 (如果尚未启用)...")
+                target_cur.execute('CREATE EXTENSION IF NOT EXISTS vector;')
+                print("  ✔ pgvector 扩展已就绪。")
+
                 with sqlite_conn(args.source) as source_conn:
+                    vec_tables_info = get_vec_info(source_conn)
+                    if vec_tables_info:
+                        print(f"✔ 检测到 {len(vec_tables_info)} 个 sqlite-vec 表: {', '.join(vec_tables_info.keys())}")
+
                     source_cur = source_conn.cursor()
                     tables_schema = get_sqlite_schema(source_conn)
 
-                    print(f"共找到 {len(tables_schema)} 个表需要迁移。")
-
                     for table_name, create_sql in tables_schema:
+                        # 跳过 sqlite-vec 内部表和系统表
+                        if table_name == 'sqlite_sequence' or table_name.endswith(('_info', '_chunks', '_rowids')) or any(suffix in table_name for suffix in ('_metadatatext', '_metadatachunks', '_vector_chunks')):
+                            continue
+
                         table_name_quoted = f'"{table_name.strip("`[]")}"'
                         
                         print(f"\n-- 正在处理表: {table_name_quoted} --")
 
                         print("  - 翻译 Schema...")
                         pg_create_sql = translate_schema_for_postgres(create_sql)
+
+                        print("  - 从 SQLite 中提取数据...")
+                        source_cur.execute(f'SELECT * FROM `{table_name.strip("`[]")}`')
+                        
+                        original_column_names = [desc[0] for desc in source_cur.description]
+                        rows = source_cur.fetchall()
+
+                        column_names = list(original_column_names)
+                        processed_rows = [list(row) for row in rows]
+                        
+                        # 确保最终语句中的表名是带引号的，以防万一
                         pg_create_sql = re.sub(
                             r'CREATE\s+TABLE\s+([`"\[]?\S+[`"\]]?)', 
                             f'CREATE TABLE {table_name_quoted}', 
@@ -259,23 +324,68 @@ def migrate_to_postgres(args, db_name):
                             flags=re.IGNORECASE
                         )
 
+                        is_virtual = False
+                        if 'USING vec0' in create_sql:
+                            is_virtual = True
+                            pg_create_sql = re.sub(r'USING\s+vec0', '', pg_create_sql, flags=re.IGNORECASE | re.DOTALL)
+                            pg_create_sql = re.sub(r'VIRTUAL\s+TABLE', 'TABLE', pg_create_sql, flags=re.IGNORECASE)
+                            pg_create_sql = re.sub(r'float\s*\[\s*(\d+)\s*\]', r'vector(\1)', pg_create_sql, flags=re.IGNORECASE)
+                            for column_name in column_names:
+                                if f' "{column_name}" ' not in pg_create_sql:
+                                    pg_create_sql = pg_create_sql.replace(f' {column_name} ', f' "{column_name}" ')
+                        pg_create_sql = pg_create_sql + ';'
+
                         print(f"  - 正在目标数据库中创建表 {table_name_quoted}...")
                         target_cur.execute(f'DROP TABLE IF EXISTS {table_name_quoted} CASCADE;')
                         target_cur.execute(pg_create_sql)
 
-                        print("  - 从 SQLite 中提取数据...")
-                        source_cur.execute(f'SELECT * FROM `{table_name.strip("`[]")}`')
-                        data = source_cur.fetchall()
-
-                        if not data:
+                        if not rows:
                             print(f"  - 表 {table_name_quoted} 为空，跳过数据插入。")
                             continue
-
-                        cols_count = len(source_cur.description)
-                        insert_query = f'INSERT INTO {table_name_quoted} VALUES ({", ".join(["%s"] * cols_count)})'
                         
-                        print(f"  - 批量插入 {len(data)} 条数据到 PostgreSQL...")
-                        execute_batch(target_cur, insert_query, data, page_size=1000)
+                        # 移除虚拟表可能包含的隐式 'rowid' 列
+                        try:
+                            rowid_index = column_names.index('rowid')
+                            print("  - 检测到并移除隐式的 'rowid' 列。")
+                            del column_names[rowid_index]
+                            for row in processed_rows:
+                                del row[rowid_index]
+                        except ValueError:
+                            pass # 'rowid' 列不存在
+
+                        # 如果是向量表，解码向量数据
+                        vec_info_for_table = vec_tables_info.get(table_name)
+                        if vec_info_for_table:
+                            print("  - 正在解码 sqlite-vec 向量数据...")
+                            vector_column_indices = {
+                                i: item['dim'] 
+                                for i, name in enumerate(column_names) 
+                                for item in vec_info_for_table['columns'] if item['name'] == name
+                            }
+                            for row in processed_rows:
+                                for i, dim in vector_column_indices.items():
+                                    blob = row[i]
+                                    if isinstance(blob, bytes):
+                                        num_floats = len(blob) // 4
+                                        unpacked_data = list(struct.unpack(f'<{num_floats}f', blob))
+                                        if num_floats != dim:
+                                            print(f"  🟡 警告: 在表 '{table_name}' 中发现不匹配的向量维度。预期 {dim}，得到 {num_floats}。将填充或截断。")
+                                            unpacked_data = (unpacked_data + [0.0] * dim)[:dim]
+                                        # 转换为 pgvector 接受的字符串格式 '[1.2,3.4,...]'
+                                        row[i] = str(unpacked_data)
+
+                        # 构建带有显式列名的 INSERT 语句
+                        # insert_query = f'INSERT INTO {table_name_quoted} ({", ".join([f'"{c}"' for c in column_names])}) VALUES ({", ".join(["%s"] * len(column_names))})'
+                        # rewrite without f-string
+                        insert_query = 'INSERT INTO {} ({}) VALUES ({})'.format(
+                            table_name_quoted,
+                            ', '.join([f'"{c}"' for c in column_names]),
+                            ', '.join(['%s'] * len(column_names))
+                        )
+                        insert_query = insert_query + ';'
+                        
+                        print(f"  - 批量插入 {len(processed_rows)} 条数据到 PostgreSQL...")
+                        execute_batch(target_cur, insert_query, processed_rows, page_size=1000)
                         print(f"  ✔ 表 {table_name_quoted} 数据迁移完成。")
             
             target_conn.commit()
@@ -303,43 +413,25 @@ def migrate_to_clickhouse(args, db_name):
     
     client = None
     try:
-        # 1. 连接到默认数据库，仅用于创建新库
         print("正在连接到服务器以创建数据库...")
         with Client(host=args.host, port=args.port, user=args.user, password=args.password) as admin_client:
             print(f"正在创建数据库 (如果不存在): {db_name}")
             admin_client.execute(f'CREATE DATABASE IF NOT EXISTS `{db_name}`')
             print(f"✔ 数据库 '{db_name}' 已就绪。")
 
-        # 2. 连接到新创建的数据库，执行所有表操作
         print(f"正在连接到新数据库 '{db_name}'...")
         client = Client(host=args.host, port=args.port, user=args.user, password=args.password, database=db_name)
 
         with sqlite_conn(args.source) as source_conn:
-            # 尝试加载 sqlite-vec 扩展
-            source_conn.enable_load_extension(True)
-            try:
-                import sqlite_vec
-                import sqlite_lembed
-                sqlite_vec.load(source_conn)
-                sqlite_lembed.load(source_conn)
-                print("✔ sqlite-vec 扩展已成功加载。")
-            except sqlite3.OperationalError:
-                print("🟡 警告: 'vec0' 扩展未找到。如果数据库不含向量表，可忽略此消息。")
-
             vec_tables_info = get_vec_info(source_conn)
             if vec_tables_info:
                 print(f"✔ 检测到 {len(vec_tables_info)} 个 sqlite-vec 表: {', '.join(vec_tables_info.keys())}")
 
             source_cur = source_conn.cursor()
             tables_schema = get_sqlite_schema(source_conn)
-            # print(f"共找到 {len(tables_schema)} 个表需要迁移。")
 
             for table_name, create_sql in tables_schema:
-                # 如果table_name包含 '_metadatatext', '_metadatachunks', '_vector_chunks' 则跳过
-                # 如果table_name以 '_info', '_chunks', "_rowids" 结尾则跳过
-                # 如果table_name等于'sqlite_sequence'则跳过
                 if table_name == 'sqlite_sequence' or table_name.endswith(('_info', '_chunks', '_rowids')) or any(suffix in table_name for suffix in ('_metadatatext', '_metadatachunks', '_vector_chunks')):
-                    # print(f"  - 跳过系统表: {table_name}")
                     continue
 
                 print(f"\n-- 正在处理表: {table_name} --")
@@ -351,7 +443,6 @@ def migrate_to_clickhouse(args, db_name):
                 client.execute(f"DROP TABLE IF EXISTS `{table_name}`")
                 client.execute(ch_create_sql)
                 
-                # --- 新增逻辑：获取 ClickHouse 目标表的准确 Schema ---
                 print("  - 正在获取 ClickHouse 目标表 Schema...")
                 target_column_types = {
                     name: type_str for name, type_str in client.execute(
@@ -397,7 +488,6 @@ def migrate_to_clickhouse(args, db_name):
                                     unpacked_data = list(struct.unpack(f'<{num_floats}f', blob))
                                     row[i] = (unpacked_data + [0.0] * dim)[:dim]
                 
-                # --- 核心修正：根据 ClickHouse 的 Schema 强制转换数据类型 ---
                 print("  - 正在根据目标 Schema 强制转换数据类型...")
                 final_data = []
                 for row in processed_rows:
@@ -406,7 +496,6 @@ def migrate_to_clickhouse(args, db_name):
                         target_type = target_column_types.get(col_name)
                         value = coerced_row[i]
                         
-                        # 如果目标列是字符串类型，而当前值不是字符串（且不为 None），则强制转换
                         if target_type and 'String' in target_type and not isinstance(value, str) and value is not None:
                             coerced_row[i] = str(value)
                             
@@ -433,27 +522,29 @@ def migrate_to_clickhouse(args, db_name):
 def main():
     parser = argparse.ArgumentParser(description="一键将 SQLite 数据库（支持 sqlite-vec）迁移到 PostgreSQL 或 ClickHouse。")
     
-    parser.add_argument('--source', default='/mnt/b_public/data/wangzr/Text2VectorSQL/synthesis/toy_spider/results/vector_databases_toy/musical/musical.sqlite', help="源 SQLite 数据库文件路径 (.db 或 .sqlite)。")
-    parser.add_argument('--target', default='clickhouse', choices=['postgresql', 'clickhouse'], help="目标数据库类型。")
+    parser.add_argument('--source', default='/mnt/b_public/data/wangzr/Text2VectorSQL/synthesis/toy_spider/results/vector_databases_toy/game_injury/game_injury.sqlite', help="源 SQLite 数据库文件路径 (.db 或 .sqlite)。")
+    parser.add_argument('--target', default='postgresql', choices=['postgresql', 'clickhouse'], help="目标数据库类型。")
     parser.add_argument('--host', default='localhost', help="目标数据库主机地址。")
-    parser.add_argument('--user', default='default', help="目标数据库用户名。")
-    parser.add_argument('--password', default='', help="目标数据库密码。")
-    parser.add_argument('--port', default=9000, type=int, help="目标数据库端口 (PostgreSQL 默认为 5432, ClickHouse 默认为 9000)。")
+    parser.add_argument('--user', help="postgres")
+    parser.add_argument('--password', default='postgres', help="目标数据库密码。")
+    parser.add_argument('--port', type=int, help="目标数据库端口 (PostgreSQL 默认为 5432, ClickHouse 默认为 9000)。")
     
     args = parser.parse_args()
 
     if args.port is None:
         args.port = 5432 if args.target == 'postgresql' else 9000
+    
+    if args.user is None:
+        args.user = 'postgres' if args.target == 'postgresql' else 'default'
+
 
     if not os.path.exists(args.source):
         print(f"✖ 错误：源文件 '{args.source}' 不存在。")
         return
 
-    # 修正：os.path.splitext 返回一个元组 (root, ext)，我们需要第一个元素
     db_name = os.path.splitext(os.path.basename(args.source))[0]
-    # 修正：确保 db_name 是字符串后再进行 re.sub 操作
     db_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(db_name))
-    db_name = db_name.lower() # 数据库名通常建议小写
+    db_name = db_name.lower()
 
     print(f"源文件: {args.source}")
     print(f"目标类型: {args.target}")
