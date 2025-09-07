@@ -25,7 +25,7 @@ cache/
 # prompt*/
 logging/
 
-./model/all-MiniLM-L6-v2.e4ce9877.q8_0.gguf
+*.gguf
 ./synthesis/model/
 
 *.sql
