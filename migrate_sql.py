@@ -14,12 +14,12 @@ class SQLiteToClickHouseConverter:
     自动将使用 sqlite-vec 和 sqlite-lembed 的复杂 SQLite 查询
     转换为优化的 ClickHouse 向量搜索查询。
 
-    核心特性 (V10 - CTE拼接逻辑修正):
+    核心特性 (V11 - 简化CTE列名):
+    - **简化CTE列名**: 在多向量搜索的CTE下推策略中，将生成的距离列名（如`distance_c`）统一简化为`distance`。
     - **修正主查询丢失**: 修复了当查询包含CTE且向量搜索在主查询中时，主查询丢失的严重Bug。
     - **精准定位SELECT**: 修正了ORDER BY子句中的distance干扰SELECT列生成的Bug。
     - **智能替换/注入**: 智能处理（替换或注入）别名或裸distance列。
     - **LIMIT约束支持**: 能正确识别并处理 `LIMIT k` 作为向量搜索的约束条件。
-    - **动态嵌入占位符**: 生成 `lembed('model', 'text')` 格式的占位符。
     """
 
     def __init__(self, sqlite_query, distance_function='L2Distance'):
@@ -207,8 +207,9 @@ class SQLiteToClickHouseConverter:
             return m.group(0)
         modified_block = from_join_pattern.sub(replace_from_join, modified_block)
 
-        for alias in local_searches:
-            modified_block = re.sub(r'\b' + re.escape(alias) + r'\.distance\b', f'{alias}.distance_{alias}', modified_block, flags=re.I)
+        # 【核心修改 V11】移除对 distance 列的重命名，因为 CTE 中将统一使用 'distance'
+        # for alias in local_searches:
+        #     modified_block = re.sub(r'\b' + re.escape(alias) + r'\.distance\b', f'{alias}.distance_{alias}', modified_block, flags=re.I)
             
         return modified_block.strip(), local_searches, pushed_filters, aliases_in_scope
 
@@ -282,33 +283,28 @@ class SQLiteToClickHouseConverter:
             clean_block = re.sub(r'\bLIMIT\s+\d+\s*$', '', clean_block, flags=re.I).strip()
             clean_block += f"\nORDER BY distance\nLIMIT {s_info['k']['k_value']}"
             
-            # --- **核心修正逻辑 V10** ---
             placeholder = self._get_placeholder_embedding(s_info['match']['text'], s_info['match']['model'])
             with_clause = f"WITH\n    {placeholder} AS {vec_alias}"
             
             final_cte_strings = []
             main_part = ""
 
-            # 遍历原始 CTE 并构建最终的 CTE 字符串列表
             for name, body in self.original_ctes.items():
                 body_to_add = clean_block if name == search_block_key else body
                 indented_body = "    " + body_to_add.replace("\n", "\n    ")
                 final_cte_strings.append(f"{name} AS (\n{indented_body}\n)")
             
-            # 确定主查询部分
             if search_block_key == 'main':
                 main_part = clean_block
             else:
                 main_part = main_query
             
-            # 组装最终查询
             if final_cte_strings:
                 with_clause += ",\n\n" + ",\n\n".join(final_cte_strings)
             
             return f"{with_clause}\n\n{main_part};"
-            # --- **修正结束** ---
 
-        else: # 多向量搜索逻辑 (保持不变)
+        else: # 多向量搜索逻辑
             logging.info(f"检测到 {len(self.vector_searches)} 个向量搜索，采用CTE下推过滤策略。")
             output_parts, vec_alias_map = [], {}
             ref_vec_clauses = []
@@ -330,14 +326,15 @@ class SQLiteToClickHouseConverter:
                         filters = [re.sub(r'\b' + alias + r'\.', '', f, flags=re.I) for f in pushed_filters]
                         where_for_cte = f"WHERE {' AND '.join(filters)}"
                     
+                    # 【核心修改 V11】将 distance_{alias} 简化为 distance
                     cte = dedent(f"""\
                         {alias}_filtered AS (
                             SELECT
                                 *,
-                                {self.distance_function}({info['match']['column_name']}, {vec_alias_map[local_search['id']]}) AS distance_{alias}
+                                {self.distance_function}({info['match']['column_name']}, {vec_alias_map[local_search['id']]}) AS distance
                             FROM {table_name}
                             {where_for_cte}
-                            ORDER BY distance_{alias}
+                            ORDER BY distance
                             LIMIT {info['k']['k_value']}
                         )""").strip()
                     filtering_ctes.append(cte)
