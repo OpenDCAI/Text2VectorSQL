@@ -1,0 +1,26 @@
+# engine_config.yaml
+
+# 上一步部署的Embedding Service的API地址
+embedding_service:
+  url: "http://localhost:8000/embed"
+  # 可以增加超时等配置
+  # timeout: 10
+
+# 不同类型数据库的连接模板
+# 脚本将使用这些模板，并用运行时传入的数据库名或路径来完成连接
+database_connections:
+  postgresql:
+    # 'database' (数据库名) 将在运行时通过参数传入
+    host: "localhost"
+    port: 5432
+    user: "postgres"      # 请替换为您的用户名
+    password: "postgres"  # 请替换为您的密码
+
+  clickhouse:
+    # 'database' (数据库名) 将在运行时通过参数传入
+    host: "localhost"
+    port: 8123                 # HTTP协议端口, 通常是8123
+    user: "default"
+    password: ""               # 您的ClickHouse密码
+
+  # SQLite不需要配置模板，因为它的连接就是文件路径本身

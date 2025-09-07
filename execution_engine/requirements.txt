@@ -1,0 +1,11 @@
+# requirements.txt
+
+# 用于加载YAML配置
+pyyaml
+
+# 用于调用嵌入服务API
+requests
+
+# 各数据库驱动
+psycopg2-binary     # PostgreSQL驱动
+clickhouse-connect  # ClickHouse驱动
