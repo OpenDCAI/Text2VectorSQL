@@ -14,10 +14,12 @@ class SQLiteToClickHouseConverter:
     自动将使用 sqlite-vec 和 sqlite-lembed 的复杂 SQLite 查询
     转换为优化的 ClickHouse 向量搜索查询。
 
-    核心特性 (V2 - 修正版):
-    - **作用域感知**: 精确解析每个查询块（CTE/主查询）内的表和别名，避免全局污染。
-    - **过滤条件下推 (Filter Pushdown)**: 将相关的结构化过滤器下推到向量搜索CTE中，以提高性能。
-    - **健壮的语法解析**: 能正确处理带或不带'AS'的别名，以及完全没有别名的表。
+    核心特性 (V10 - CTE拼接逻辑修正):
+    - **修正主查询丢失**: 修复了当查询包含CTE且向量搜索在主查询中时，主查询丢失的严重Bug。
+    - **精准定位SELECT**: 修正了ORDER BY子句中的distance干扰SELECT列生成的Bug。
+    - **智能替换/注入**: 智能处理（替换或注入）别名或裸distance列。
+    - **LIMIT约束支持**: 能正确识别并处理 `LIMIT k` 作为向量搜索的约束条件。
+    - **动态嵌入占位符**: 生成 `lembed('model', 'text')` 格式的占位符。
     """
 
     def __init__(self, sqlite_query, distance_function='L2Distance'):
@@ -26,10 +28,13 @@ class SQLiteToClickHouseConverter:
         self.vector_searches = {}
         self.original_ctes = {}
 
-    def _get_placeholder_embedding(self, text: str) -> str:
-        """为给定的文本生成一个向量占位符。"""
-        clean_text = text.replace('*/', '* /')
-        return f"/* embedding_of('{clean_text}') */ [ ... ] -- 请在此处填充真实向量"
+    def _get_placeholder_embedding(self, text: str, model: str) -> str:
+        """
+        为给定的文本和模型生成一个 lembed 函数调用字符串。
+        对文本中的单引号进行转义以防止SQL注入或语法错误。
+        """
+        escaped_text = text.replace("'", "''")
+        return f"lembed('{model}', '{escaped_text}')"
 
     def _parse_cte_structure(self):
         """仅负责从查询中分离出CTE定义和主查询体。"""
@@ -56,40 +61,48 @@ class SQLiteToClickHouseConverter:
 
         cte_definitions_str = query_after_with[:last_cte_end_index]
         main_query = query_after_with[last_cte_end_index:].strip()
+        
+        balance, last_split = 0, 0
+        in_string = False
+        for i, char in enumerate(cte_definitions_str):
+            if char == "'":
+                in_string = not in_string
+            if not in_string:
+                if char == '(':
+                    balance += 1
+                elif char == ')':
+                    balance -= 1
+                elif char == ',' and balance == 0:
+                    cte_def = cte_definitions_str[last_split:i].strip()
+                    match = re.match(r'(\w+)\s+AS\s+\((.*)\)', cte_def, re.IGNORECASE | re.DOTALL)
+                    if match: self.original_ctes[match.group(1).strip()] = match.group(2).strip()
+                    last_split = i + 1
+        
+        last_cte_def = cte_definitions_str[last_split:].strip()
+        match = re.match(r'(\w+)\s+AS\s+\((.*)\)', last_cte_def, re.IGNORECASE | re.DOTALL)
+        if match: self.original_ctes[match.group(1).strip()] = match.group(2).strip()
 
-        cte_defs = re.split(r',\s*(?=[a-zA-Z0-9_]+\s+AS\s*\()', cte_definitions_str)
-        for cte_def in cte_defs:
-            match = re.match(r'(\w+)\s+AS\s+\((.*)\)', cte_def.strip(), re.IGNORECASE | re.DOTALL)
-            if match:
-                self.original_ctes[match.group(1).strip()] = match.group(2).strip()
         return main_query
 
     def _get_aliases_in_scope(self, query_block: str) -> dict[str, str]:
-        """
-        【核心修正】精确解析给定查询块中的所有表及其别名。
-        """
+        """精确解析给定查询块中的所有表及其别名。"""
         aliases = {}
         from_join_content_match = re.search(
             r'\bFROM\s+(.*?)(?=\bWHERE|\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', 
             query_block, re.S | re.I
         )
-        if not from_join_content_match:
-            return {}
+        if not from_join_content_match: return {}
         
         from_join_content = from_join_content_match.group(1)
-        # 移除 ON 子句，因为它可能包含复杂的逻辑，干扰表的拆分
         content_no_on = re.sub(r'\bON\b.*?(?=\b(CROSS|INNER|LEFT|RIGHT|FULL)?\s*JOIN\b|\Z)', '', from_join_content, flags=re.S|re.I)
-        # 使用一个不会混淆的分隔符替换所有类型的JOIN
         processed_content = re.sub(r'\b(CROSS|INNER|LEFT|RIGHT|FULL)?\s*JOIN\b', '&&&', content_no_on, flags=re.I)
         
         table_parts = [p.strip() for p in processed_content.split('&&&')]
 
         for part in table_parts:
-            # 匹配 'table [AS] alias' 或 'table'
-            match = re.match(r'([\w\.]+)(?:\s+AS)?\s*(\w*)', part)
+            match = re.match(r'([\w\.\(\)]+)(?:\s+AS)?\s*(\w*)', part.strip())
             if match:
                 table_name, alias = match.groups()
-                # 如果别名为空，或者别名是SQL关键字，则使用表名作为别名
                 if not alias or alias.upper() in SQL_KEYWORDS:
                     aliases[table_name] = table_name
                 else:
@@ -97,11 +110,17 @@ class SQLiteToClickHouseConverter:
         return aliases
 
     def _split_where_conditions(self, where_clause: str) -> list[str]:
-        if not where_clause: return []
-        return [cond.strip() for cond in re.split(r'\bAND\b', where_clause, flags=re.IGNORECASE)]
+        """智能地将 WHERE 子句按 AND 分割，能正确处理 BETWEEN ... AND ... 语法。"""
+        if not where_clause:
+            return []
+        placeholder = "##_AND_##"
+        masked_clause = re.sub(r'(\bBETWEEN\b\s+.*?)\s+\bAND\b', rf'\1 {placeholder}', where_clause, flags=re.IGNORECASE)
+        conditions = [cond.strip() for cond in re.split(r'\bAND\b', masked_clause, flags=re.IGNORECASE)]
+        unmasked_conditions = [cond.replace(placeholder, 'AND') for cond in conditions]
+        return unmasked_conditions
 
     def _process_query_block(self, query_block: str) -> tuple[str, dict, dict, dict]:
-        """处理单个查询块，实现下推和重写逻辑。"""
+        """处理单个查询块，能识别 k=N 和 LIMIT N 作为约束。"""
         aliases_in_scope = self._get_aliases_in_scope(query_block)
 
         match_pattern = re.compile(
@@ -111,35 +130,52 @@ class SQLiteToClickHouseConverter:
         k_pattern = re.compile(
             r"(?P<full_clause>(?:(?P<table_alias>\w+)\.)?k\s*=\s*(?P<k_value>\d+))", re.IGNORECASE
         )
+        limit_pattern = re.compile(r"\bLIMIT\s+(?P<k_value>\d+)", re.IGNORECASE | re.DOTALL)
         
         vector_search_matches = list(match_pattern.finditer(query_block))
         if not vector_search_matches: return query_block, {}, {}, aliases_in_scope
+        
         k_matches = list(k_pattern.finditer(query_block))
+        limit_match = limit_pattern.search(query_block)
 
         local_searches = {}
+        limit_was_used_as_k = False
+
         for match in vector_search_matches:
             alias = match.group('table_alias')
             if not alias:
                 if len(aliases_in_scope) == 1:
                     alias = list(aliases_in_scope.keys())[0]
                 else:
-                    raise ValueError(f"歧义错误: 在多表查询中发现无别名的向量搜索列 '{match.group('column_name')}'。请为该列表明表别名 (例如: table.{match.group('column_name')})。")
+                    real_name_alias = next((k for k,v in aliases_in_scope.items() if k==v), None)
+                    if real_name_alias: alias = real_name_alias
+                    else: raise ValueError(f"歧义错误: 在多表查询中发现无别名的向量搜索列 '{match.group('column_name')}'。请为该列表明表别名。")
+
+            corresponding_k_match = next((k for k in k_matches if k.group('table_alias') == alias), None)
+            if not corresponding_k_match and len(k_matches) == 1 and not k_matches[0].group('table_alias'):
+                corresponding_k_match = k_matches[0]
+
+            k_info = None
+            if corresponding_k_match:
+                k_info = corresponding_k_match.groupdict()
+            elif len(vector_search_matches) == 1 and limit_match:
+                k_info = { "full_clause": limit_match.group(0), "table_alias": None, "k_value": limit_match.group('k_value') }
+                limit_was_used_as_k = True
             
-            corresponding_k = next((k for k in k_matches if k.group('table_alias') == alias), None)
-            if not corresponding_k and len(vector_search_matches) == 1:
-                corresponding_k = next((k for k in k_matches if not k.group('table_alias')), None)
-            if not corresponding_k: raise ValueError(f"约束缺失: 在表 '{alias}' 上的向量搜索缺少 'k=N' 约束。")
+            if not k_info:
+                raise ValueError(f"约束缺失: 在表 '{alias}' 上的向量搜索缺少 'k=N' 或 'LIMIT N' 约束。")
 
             search_id = str(uuid.uuid4())
-            self.vector_searches[search_id] = {"match": match.groupdict(), "k": corresponding_k.groupdict()}
-            local_searches[alias] = {"id": search_id, "match_clause": match.group('full_clause'), "k_clause": corresponding_k.group('full_clause')}
+            self.vector_searches[search_id] = {"match": match.groupdict(), "k": k_info}
+            local_searches[alias] = { "id": search_id, "match_clause": match.group('full_clause'), "k_clause": k_info['full_clause'] }
 
         where_match = re.search(r'\bWHERE\s+(.*?)(?=\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', query_block, re.S | re.I)
         pushed_filters, remaining_conditions = {}, []
 
         if where_match:
             for cond in self._split_where_conditions(where_match.group(1)):
-                if any(s['match_clause'] in cond or s['k_clause'] in cond for s in local_searches.values()): continue
+                if any(s['match_clause'] in cond or s['k_clause'] in cond for s in local_searches.values()):
+                    continue
                 cond_aliases = set(re.findall(r'(\w+)\.', cond))
                 target_alias, can_push = None, False
                 if len(cond_aliases) == 1:
@@ -152,120 +188,186 @@ class SQLiteToClickHouseConverter:
                 else: remaining_conditions.append(cond)
         
         modified_block = query_block
+        if limit_was_used_as_k:
+            modified_block = limit_pattern.sub("", modified_block)
+
         if where_match: modified_block = modified_block.replace(where_match.group(0), "")
         
         if remaining_conditions:
             new_where = "WHERE " + " AND ".join(remaining_conditions)
             insert_point = re.search(r'(\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', modified_block, re.S | re.I)
-            modified_block = f"{modified_block[:insert_point.start()]}{new_where} {modified_block[insert_point.start():]}"
+            modified_block = f"{modified_block[:insert_point.start()]} {new_where} {modified_block[insert_point.start():]}"
         
-        from_join_pattern = re.compile(r'\b(FROM|JOIN)\s+([\w\.]+)(?:\s+AS)?\s+(\w+)?', re.IGNORECASE)
-        modified_block = from_join_pattern.sub(lambda m: f"{m.group(1)} {m.group(3) or m.group(2)}_filtered AS {m.group(3) or m.group(2)}" if (m.group(3) or m.group(2)) in local_searches else m.group(0), modified_block)
+        from_join_pattern = re.compile(r'\b(FROM|JOIN)\s+([\w\.]+)(?:\s+AS)?\s*(\w*)', re.IGNORECASE)
+        def replace_from_join(m):
+            keyword, table, alias = m.groups()
+            effective_alias = alias if alias and alias.upper() not in SQL_KEYWORDS else table
+            if effective_alias in local_searches:
+                return f"{keyword} {effective_alias}_filtered AS {effective_alias}"
+            return m.group(0)
+        modified_block = from_join_pattern.sub(replace_from_join, modified_block)
 
         for alias in local_searches:
-            modified_block = re.sub(r'\b' + re.escape(alias) + r'\.distance\b', f'{alias}.distance_{alias}', modified_block)
+            modified_block = re.sub(r'\b' + re.escape(alias) + r'\.distance\b', f'{alias}.distance_{alias}', modified_block, flags=re.I)
             
         return modified_block.strip(), local_searches, pushed_filters, aliases_in_scope
 
     def convert(self) -> str:
-        """执行完整的转换过程。"""
+        """执行完整的转换过程，根据向量搜索数量选择最优策略。"""
         main_query = self._parse_cte_structure()
+        
         modified_blocks, all_local_searches, all_pushed_filters, all_aliases = {}, {}, {}, {}
 
         for name, body in self.original_ctes.items():
             modified_body, local_searches, pushed_filters, aliases = self._process_query_block(body)
             modified_blocks[name] = modified_body
-            all_local_searches.update(local_searches)
-            all_pushed_filters.update(pushed_filters)
+            if local_searches: all_local_searches[name] = local_searches
+            if pushed_filters: all_pushed_filters[name] = pushed_filters
             all_aliases.update(aliases)
         
         modified_main, local_searches, pushed_filters, aliases = self._process_query_block(main_query)
         modified_blocks['main'] = modified_main
-        all_local_searches.update(local_searches)
-        all_pushed_filters.update(pushed_filters)
+        if local_searches: all_local_searches['main'] = local_searches
+        if pushed_filters: all_pushed_filters['main'] = pushed_filters
         all_aliases.update(aliases)
 
         if not self.vector_searches:
             logging.info("无需转换：未检测到向量搜索语法。")
             return self.sqlite_query + ";"
 
-        output_parts, vec_alias_map = [], {}
-        ref_vec_clauses = []
-        for i, (sid, s_info) in enumerate(self.vector_searches.items()):
-            vec_alias = f"ref_vec_{i}"
-            vec_alias_map[sid] = vec_alias
-            ref_vec_clauses.append(f"    {self._get_placeholder_embedding(s_info['match']['text'])} AS {vec_alias}")
-        if ref_vec_clauses: output_parts.append(",\n".join(ref_vec_clauses))
+        if len(self.vector_searches) == 1:
+            logging.info("检测到单个向量搜索，采用就地转换优化策略。")
+            
+            sid, s_info = next(iter(self.vector_searches.items()))
+            vec_alias = "ref_vec_0"
+            
+            search_block_key = next(iter(all_local_searches))
+            search_alias = next(iter(all_local_searches[search_block_key]))
 
-        filtering_ctes = []
-        for alias, local_search in all_local_searches.items():
-            info = self.vector_searches[local_search['id']]
-            table_name = all_aliases.get(alias, alias)
-            where_for_cte = ""
-            if all_pushed_filters.get(alias):
-                filters = [re.sub(r'\b' + alias + r'\.', '', f) for f in all_pushed_filters[alias]]
-                where_for_cte = f"WHERE {' AND '.join(filters)}"
-            cte = dedent(f"""\
-                {alias}_filtered AS (
-                    SELECT
-                        *,
-                        {self.distance_function}({info['match']['column_name']}, {vec_alias_map[local_search['id']]}) AS distance_{alias}
-                    FROM {table_name}
-                    {where_for_cte}
-                    ORDER BY distance_{alias}
-                    LIMIT {info['k']['k_value']}
-                )""").strip()
-            filtering_ctes.append(cte)
-        if filtering_ctes: output_parts.append(",\n\n".join(filtering_ctes))
+            original_block = self.original_ctes.get(search_block_key, main_query)
+            clean_block = original_block.replace(s_info['match']['full_clause'], '1=1')
+            
+            if "limit" in s_info['k']['full_clause'].lower():
+                clean_block = re.sub(r'\bLIMIT\s+\d+', '', clean_block, flags=re.I|re.S)
+            else:
+                clean_block = clean_block.replace(s_info['k']['full_clause'], '1=1')
 
-        modified_original_ctes = []
-        for name in self.original_ctes:
-            modified_body = "    " + modified_blocks[name].replace("\n", "\n    ")
-            modified_original_ctes.append(f"{name} AS (\n{modified_body}\n)")
-        if modified_original_ctes: output_parts.append(",\n\n".join(modified_original_ctes))
-        
-        final_with_clause = "WITH\n" + "\n\n, ".join(filter(None, output_parts))
-        final_query = f"{final_with_clause}\n\n{modified_blocks['main']};"
-        return final_query
-        
+            clean_block = re.sub(r'\bAND\s+1=1\b', '', clean_block, flags=re.I)
+            clean_block = re.sub(r'\b1=1\s+AND\b', '', clean_block, flags=re.I)
+            clean_block = re.sub(r'\bWHERE\s+1=1\b', '', clean_block, flags=re.I)
+
+            from_match = re.search(r'\s+\bFROM\b', clean_block, flags=re.I | re.S)
+            if not from_match:
+                raise ValueError("转换失败：无法在查询块中定位 FROM 关键字。")
+
+            select_clause_part = clean_block[:from_match.start()]
+            rest_of_block = clean_block[from_match.start():]
+            
+            distance_func_call = f"{self.distance_function}({s_info['match']['table_alias'] or search_alias}.{s_info['match']['column_name']}, {vec_alias})"
+            aliased_distance_pattern = r'\b' + re.escape(search_alias) + r'\.distance\b'
+            bare_distance_pattern = r'(?<!\.)\bdistance\b'
+            
+            if re.search(aliased_distance_pattern, select_clause_part, flags=re.I):
+                select_clause_part = re.sub(aliased_distance_pattern, f"{distance_func_call} AS distance", select_clause_part, flags=re.I, count=1)
+            elif re.search(bare_distance_pattern, select_clause_part, flags=re.I):
+                select_clause_part = re.sub(bare_distance_pattern, f"{distance_func_call} AS distance", select_clause_part, flags=re.I, count=1)
+            else:
+                select_clause_part = re.sub(
+                    r'(\bSELECT(?:\s+DISTINCT)?\s+)(.*)',
+                    rf'\1\2, {distance_func_call} AS distance',
+                    select_clause_part, count=1, flags=re.I | re.S).strip()
+
+            clean_block = select_clause_part + rest_of_block
+            clean_block = re.sub(r'\bORDER BY.*', '', clean_block, flags=re.I|re.S).strip()
+            clean_block = re.sub(r'\bLIMIT\s+\d+\s*$', '', clean_block, flags=re.I).strip()
+            clean_block += f"\nORDER BY distance\nLIMIT {s_info['k']['k_value']}"
+            
+            # --- **核心修正逻辑 V10** ---
+            placeholder = self._get_placeholder_embedding(s_info['match']['text'], s_info['match']['model'])
+            with_clause = f"WITH\n    {placeholder} AS {vec_alias}"
+            
+            final_cte_strings = []
+            main_part = ""
+
+            # 遍历原始 CTE 并构建最终的 CTE 字符串列表
+            for name, body in self.original_ctes.items():
+                body_to_add = clean_block if name == search_block_key else body
+                indented_body = "    " + body_to_add.replace("\n", "\n    ")
+                final_cte_strings.append(f"{name} AS (\n{indented_body}\n)")
+            
+            # 确定主查询部分
+            if search_block_key == 'main':
+                main_part = clean_block
+            else:
+                main_part = main_query
+            
+            # 组装最终查询
+            if final_cte_strings:
+                with_clause += ",\n\n" + ",\n\n".join(final_cte_strings)
+            
+            return f"{with_clause}\n\n{main_part};"
+            # --- **修正结束** ---
+
+        else: # 多向量搜索逻辑 (保持不变)
+            logging.info(f"检测到 {len(self.vector_searches)} 个向量搜索，采用CTE下推过滤策略。")
+            output_parts, vec_alias_map = [], {}
+            ref_vec_clauses = []
+            for i, (sid, s_info) in enumerate(self.vector_searches.items()):
+                vec_alias = f"ref_vec_{i}"
+                vec_alias_map[sid] = vec_alias
+                placeholder = self._get_placeholder_embedding(s_info['match']['text'], s_info['match']['model'])
+                ref_vec_clauses.append(f"    {placeholder} AS {vec_alias}")
+            if ref_vec_clauses: output_parts.append(",\n".join(ref_vec_clauses))
+
+            filtering_ctes = []
+            for block_name, local_searches in all_local_searches.items():
+                for alias, local_search in local_searches.items():
+                    info = self.vector_searches[local_search['id']]
+                    table_name = all_aliases.get(alias, alias)
+                    where_for_cte = ""
+                    pushed_filters = all_pushed_filters.get(block_name, {}).get(alias, [])
+                    if pushed_filters:
+                        filters = [re.sub(r'\b' + alias + r'\.', '', f, flags=re.I) for f in pushed_filters]
+                        where_for_cte = f"WHERE {' AND '.join(filters)}"
+                    
+                    cte = dedent(f"""\
+                        {alias}_filtered AS (
+                            SELECT
+                                *,
+                                {self.distance_function}({info['match']['column_name']}, {vec_alias_map[local_search['id']]}) AS distance_{alias}
+                            FROM {table_name}
+                            {where_for_cte}
+                            ORDER BY distance_{alias}
+                            LIMIT {info['k']['k_value']}
+                        )""").strip()
+                    filtering_ctes.append(cte)
+            if filtering_ctes: output_parts.append(",\n\n".join(filtering_ctes))
+
+            modified_original_ctes = []
+            for name in self.original_ctes:
+                modified_body = "    " + modified_blocks[name].replace("\n", "\n    ")
+                modified_original_ctes.append(f"{name} AS (\n{modified_body}\n)")
+            if modified_original_ctes: output_parts.append(",\n\n".join(modified_original_ctes))
+            
+            final_with_clause = "WITH\n" + ",\n\n".join(filter(None, output_parts))
+            final_query = f"{final_with_clause}\n\n{modified_blocks['main']};"
+            return final_query
+
 # --- 运行验证 ---
 if __name__ == '__main__':
-    # 在 CTE 内部进行向量搜索的查询, 且 FROM musical 无别名
-    sqlite_query_with_vec_in_cte_no_alias = """
-    WITH TopMusicals AS (
-        SELECT Musical_ID, Name, Year, distance
-        FROM musical
-        WHERE Category_embedding MATCH lembed('all-MiniLM-L6-v2', 'Classic Broadway hit')
-        AND k = 5 AND Year < 2000
-    )
-    SELECT tm.Name, a.Name
-    FROM TopMusicals tm
-    JOIN actor a ON tm.Musical_ID = a.Musical_ID
-    WHERE a.age > 50;
-    """
-
-    sqlite_query_with_vec_in_cte_no_alias = "WITH PerpetratorSearch AS (    SELECT Perpetrator_ID, Location, Year, distance    FROM perpetrator    WHERE Location_embedding MATCH lembed('all-MiniLM-L6-v2', 'Stadium: 123 Main St, Boston, MA. Capacity: 50,000. Home team: Patriots')    AND Year BETWEEN 2015 AND 2020    AND k = 5  )    SELECT p.People_ID  FROM perpetrator p  JOIN PerpetratorSearch ps ON p.Perpetrator_ID = ps.Perpetrator_ID  ORDER BY ps.distance  LIMIT 1;"
-    
-    sqlite_query_with_vec_in_cte_no_alias = "SELECT m.Musical_ID FROM musical m JOIN actor a ON m.Musical_ID = a.Musical_ID WHERE m.Category_embedding MATCH lembed('all-MiniLM-L6-v2',  'Best Performance by a Supporting Actor in a Musical ') AND m.k = 5 AND a.age > 30 ORDER BY m.distance;"
-    
-    sqlite_query_with_vec_in_cte_no_alias = "SELECT COUNT(m.Musical_ID) FROM musical m JOIN actor a ON m.Musical_ID = a.Musical_ID WHERE m.Category_embedding MATCH lembed('all-MiniLM-L6-v2',  'Outstanding performance in musical theater ') AND k = 3 AND a.age BETWEEN 20 AND 40 AND m.Year >= 2000 AND m.Result = 'Won';"
-
-    print("\n" + "="*40)
-    print(">>> 验证场景: CTE内部向量搜索 + 无别名表...")
-    print("="*40)
-    
-    converter_validation = SQLiteToClickHouseConverter(sqlite_query_with_vec_in_cte_no_alias)
-    try:
-        clickhouse_query_validation = converter_validation.convert()
-        print("--- 原始 SQLite 查询 ---\n")
-        print(sqlite_query_with_vec_in_cte_no_alias.strip())
-        print("\n\n--- 转换后的 ClickHouse 查询 ---\n")
-        print(clickhouse_query_validation)
-        
-        # 验证别名映射是否正确
-        print("\n--- 内部别名映射 (调试信息) ---")
-        # To show the alias map, we'd need to expose it from the class. For now, the successful conversion is proof.
-        logging.info("转换成功，未出现别名解析错误。")
-
-    except ValueError as e:
-        logging.error(f"转换失败: {e}")
+    import json
+    path = '/mnt/b_public/data/wangzr/Text2VectorSQL/synthesis/toy_spider/results/question_and_sql_pairs.json'
+    with open(path, 'r') as f:
+        data = json.load(f)
+        for item in data:
+            print(item['question'])
+            sql = item['sql']
+            sql = sql.strip().rstrip(';').replace('"',"'")
+            print('='*40)
+            print(sql)
+            converter = SQLiteToClickHouseConverter(sql)
+            print('-'*20)
+            ch_sql = converter.convert()
+            print(ch_sql)
+            print('='*40)
+            
