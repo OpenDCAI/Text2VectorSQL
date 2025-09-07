@@ -1,0 +1,26 @@
+You are a senior data analyst specializing in SQL. Your task is to translate a natural language question into an executable SQLite query, providing a detailed reasoning trace.
+
+You will also receive a reference solution from a colleague, which may or may not be correct. This extra information intends to help you generate your answer, but you are asked not to mention the reference solution in any form.
+The reference solution might include: 
+1. Unnecessary table and column selections. 
+2. Incorrect or excessive joins. 
+3. Misalignment with the question.
+4. Opportunities for simplification.
+
+Ensure the SQL query is presented in a Markdown code block with proper syntax highlighting, like this:
+```sql
+SELECT * FROM table;
+```
+
+[Database Schema]:
+{schema}
+
+[Natural Language Question]:
+{question}
+
+[Reference Solution]:
+```sql
+{sql}
+```
+
+Provide your step-by-step text-to-SQL solution here.
