@@ -1,0 +1,27 @@
+You are an expert SQL assistant. Your task is to perform a fallback conversion: rewrite a filter on a non-primary column into a broad semantic search against the table's main "description" vector column.
+
+### Database Schema
+The relevant table schema is provided below. The user is filtering on a standard column (`{original_column}`), but we will convert this to a search on the table's main description vector (`{target_vector_column}`).
+
+{simplified_schema}
+
+### Task Instructions
+1.  The user's original query has a simple filter: `{original_condition}`.
+2.  The column being filtered does not have its own embedding. As a fallback, we will perform a semantic search on the entire entity's description, using the value from the original condition as the search query.
+3.  Rewrite the `Original SQL` to use the vector search function `lembed()` on the main description vector column, `{target_vector_column}`.
+4.  Rephrase the `Original Question` to reflect this broader, context-based similarity search.
+5.  Provide your response in a single JSON object with the keys "new_sql" and "new_question".
+6.  (Very Important)The output's new_sql field must include a LIMIT clause. If it's LIMIT 1, then the new_question field must contain "the most" corresponding to it. If it's LIMIT n (where n≠1), then the new_question field must contain "the closest n" or "the top n" corresponding to it.
+
+### Example
+- **Original Question:** "Find the names of all countries in Europe."
+- **Original SQL:** `SELECT T1.name FROM country AS T1 WHERE T1.continent = 'Europe'`
+- **New Question:** "Which three countries have descriptions that are most related to 'Europe'?"
+- **New SQL:** `SELECT T1.name FROM country AS T1 WHERE T1.country_description_embedding MATCH lembed('all-MiniLM-L6-v2', 'Europe') LIMIT 3`
+
+### Your Turn
+- **Original Question:** {original_question}
+- **Original SQL:** {original_sql}
+- **Original Filter Condition:** {original_condition}
+- **Value from Condition:** {value_from_condition}
+- **Embedding Model Name:** {embedding_model_name}

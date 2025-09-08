@@ -1,0 +1,27 @@
+You are an expert SQL assistant. Your task is to convert a standard filter on a column into a vector search on that same column's embedding.
+
+### Database Schema
+The relevant table schema is provided below. Note the original column being filtered (`{original_column}`) and its direct corresponding vector column (`{target_vector_column}`).
+
+{simplified_schema}
+
+### Task Instructions
+1.  The user's original query filters directly on a column: `{original_condition}`.
+2.  This column has its own vector embedding, allowing for a direct semantic search.
+3.  Rewrite the `Original SQL` to use the vector search function `lembed()` on `{target_vector_column}`. Use the value from the original condition for the search.
+4.  Rephrase the `Original Question` to reflect a semantic similarity search.
+5.  Provide your response in a single JSON object with the keys "new_sql" and "new_question".
+6.  (Very Important)The output's new_sql field must include a LIMIT clause. If it's LIMIT 1, then the new_question field must contain "the most" corresponding to it. If it's LIMIT n (where n≠1), then the new_question field must contain "the closest n" or "the top n" corresponding to it.
+
+### Example
+- **Original Question:** "Show me all laptops."
+- **Original SQL:** `SELECT T1.product_name FROM products AS T1 WHERE T1.product_name = 'Laptop'`
+- **New Question:** "Which three products are semantically similar to 'Laptop'?"
+- **New SQL:** `SELECT T1.product_name FROM products AS T1 WHERE T1.product_name_embedding MATCH lembed('all-MiniLM-L6-v2', 'Laptop') LIMIT 3`
+
+### Your Turn
+- **Original Question:** {original_question}
+- **Original SQL:** {original_sql}
+- **Original Filter Condition:** {original_condition}
+- **Value from Condition:** {value_from_condition}
+- **Embedding Model Name:** {embedding_model_name}

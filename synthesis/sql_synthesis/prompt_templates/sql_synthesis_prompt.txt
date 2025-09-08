@@ -1,0 +1,143 @@
+**Task Overview**
+Create an executable SQL query based on the provided information.
+
+**Database Schema**
+{schema_str}
+
+{sql_function_prompt}
+
+{db_value_prompt}
+
+**SQL Query Complexity**
+Ensure the SQL query matches the {complexity} level, defined as follows:
+{criterion}
+
+**Output Format Requirements**
+Enclose the SQL query in a code block:
+```sql
+  -- Your SQL query here
+```
+
+**SQL Query Requirements**
+1. Use the syntax specific to the {db_engine} database engine.
+2. Incorporate advanced functions if appropriate, but they are not mandatory.
+3. Address real-world data analysis needs. Avoid trivial or nonsensical queries.
+4. (Very important) Ensure the final SQL query selects {column_count} columns.
+5. (Very important) Always verify that every column name you reference in a query exists in the tables you're querying. Before executing a query, ensure all referenced columns (e.g., column1, table1.id) are valid and spelled correctly.
+
+
+**SQL extension**
+Extension: {db_extension}. 
+If you use "SQLite-vec", there are a few Requirements you should Comply with in addition, else you can ignore these requirements below.
+1. When generating SQL queries， you should prioritize utilizing KNN searches whenever contextually appropriate. However, you have to avoid unnecessary/forced KNN implementations for:
+--Traditional relational data queries (especially for columns like: id, age, price)
+--Cases where standard SQL operators (equality, range, or aggregation functions) are more efficient and semantically appropriate
+2. Only vector type(like: float[?]) support KNN queries and the name of vector column often end with "_embedding". So, you can use knn queries to search when the column name you need to search for ends with "_embedding" or when the column name with "_embedding" is also in the list.
+3. In any complexity level, you can choose to use KNN queries if need.
+4. When using KNN queries, you have to add LIMIT or 'And k = ?' constraint but do not use them all in the same statement. This rule is very important, do not forget to add LIMIT or 'And k = ?' constraint after MATCH operator.
+5. The lembed function is used to transform a string into a vector, whose type and size match the corresponding column type in the data table. The function has two parameters, the first parameter is the name of the embedding model used (default value: {embedding_model}), and the second parameter is the content of the string type you want to convert. So, you should generate some words or sentences with specific semantic information based on name, type and comment of this column. For example, you can generate "The Daily Grind Coffee Shop\n 456 Oak Avenue\n Springfield, IL 62704\n USA" when this column name is Location_embedding, column type is float[384] and comment of column is "the embedding of location".
+6. The lembed function's second parameter MUST be a SPECIFIC semantic description. 
+   - For location_embedding: Generate REAL addresses (e.g. "Stadium: 123 Main St, Boston, MA. Capacity: 50,000. Home team: Patriots")
+   - For columns containing semantically meaningful data (e.g., descriptions), generate rich, contextually appropriate information. For columns without meaningful content (e.g., placeholder names), avoid creating semantically dense output to facilitate fuzzy matching operations.
+   - For name_embedding: You should generate variationsof the original names (e.g., altered spellings, phonetic approximations, or intentionally obfuscated words/characters) to enable Subsequent fuzzy matching to identify semantically similar names. Importantly, never generate redundant information. For example, you can generate "Lige", but do not generate "Ligand Lige", "Ligand example name", "Ligand similar to Aspirin" and "Ligand name variation".
+   Examples:
+   ✅ Correct: 
+     name_embedding MATCH lembed('all-MiniLM-L6-v2', "Kri")
+   ❌ Wrong:  
+     name_embedding MATCH lembed('all-MiniLM-L6-v2', "A leading publisher based in Germany specializing in 
+scientific journals and books.")
+   - For text_embedding: Use ACTUAL and meaningful sentences (e.g. "Harper Lee’s To Kill a Mockingbirdis a timeless exploration of racial injustice and moral growth, seen through the innocent yet perceptive eyes of Scout Finch. With its powerful themes, unforgettable characters like Atticus Finch, and Lee’s poignant prose, the novel remains a searing critique of society’s failures and a testament to the courage of standing for what’s right.")
+   - NEVER use vague words and generic phrases like "a book review"   
+   Examples:
+   ✅ Correct: 
+     lembed('all-MiniLM-L6-v2', "To Kill a Mockingbird")
+   ❌ Wrong:  
+     lembed('all-MiniLM-L6-v2', "name of a famous book")
+7. When using MATCH, please fill in a vector using function lembed after MATCH that matches the column type (with the same dimension and type). Using details are in examples.
+8. The distance column is an ​​implicitly generated metric​​ that appears when performing vector similarity searches (using the MATCH operator) in SQLite vector extensions like sqlite-vec. If using JOIN operator, you have to clarify which table that distance belongs to.
+9. A SELECT statement should have no more than one MATCH operation. However, each subquery within a SELECT statement could also have no more than one MATCH operation, independent of the parent query."
+10. When performing a KNN/vector similarity search (e.g., using MATCH or lembed), always specify a LIMIT or k=N constraint directly on the vector search operation, even if the outer query already has a LIMIT. The vector search requires its own result cap to avoid ambiguity in ranking and performance issues. 
+11. When both LIMIT and k operations are available for vector search queries, prioritize using k operation for ​​Broader Compatibility.
+Key Points:
+​--​Vector search needs its own LIMIT/k​​ – The outer LIMIT applies to the final filtered results, not the initial similarity search.
+--LIMIT operator should follow closely after "ORDER BY distance". 
+❌ Wrong Example: 
+```sql
+SELECT a.codec_name
+FROM audio_codecs a
+JOIN quality_levels q ON a.codec_id = q.quality_id
+WHERE a.description_embedding MATCH lembed('all-MiniLM-L6-v2', "High efficiency audio codec with low latency and optimal bandwidth")
+AND q.quality_name = 'HighQuality'
+LIMIT 1;
+```
+✅ Correct Example:
+```sql
+SELECT a.codec_name
+FROM audio_codecs a
+JOIN quality_levels q ON a.codec_id = q.quality_id
+WHERE a.description_embedding MATCH lembed('all-MiniLM-L6-v2', "High efficiency audio codec with low latency and optimal bandwidth") LIMIT 1
+AND q.quality_name = 'HighQuality';
+```
+--When using JOIN operations, you need to ensure that k does not cause ambiguity in the query. In most cases, the k parameter logically belongs to the same table as the column used in the MATCH clause. So, when the column referenced in the MATCH clause includes a table qualifier (e.g., table1.embedding), the k parameter must be explicitly bound to the same table.
+❌ Wrong Example: 
+```sql
+SELECT s.stock_id, s.symbol
+FROM stocks s
+JOIN exchanges e ON s.exchange_id = e.exchange_id
+WHERE s.sector_embedding MATCH lembed('all-MiniLM-L6-v2', "Tech industry sector in the USA")
+AND e.country = 'USA'
+AND k = 5
+ORDER BY s.stock_id;
+```
+✅ Correct Example:
+```sql
+SELECT s.stock_id, s.symbol
+FROM stocks s
+JOIN exchanges e ON s.exchange_id = e.exchange_id
+WHERE s.sector_embedding MATCH lembed('all-MiniLM-L6-v2', "Tech industry sector in the USA")
+AND e.country = 'USA'
+AND s.k = 5
+ORDER BY s.stock_id;
+```
+12. ​Avoids runtime errors​​ – Many vector databases (e.g., SQLite with sqlite-vss, pgvector) enforce this requirement strictly.
+13. Only a single 'ORDER BY distance' clause is allowed on vec0 KNN queries, not on other columns.
+***Example of KNN queries of sqlite-vec***
+first example(type of vector_embedding is float[384]):
+```sql
+SELECT rowid, distance 
+FROM vec_table 
+WHERE vector_embedding MATCH lembed({embedding_model},"vector of sun")
+ORDER BY distance 
+LIMIT 1;
+```
+
+second example(type of sentence_embedding is float[384]):
+```sql
+select
+  movie_id,
+  title,
+  genre,
+  num_reviews,
+  mean_rating,
+  distance
+from vec_movies
+where sentence_embedding match lembed({embedding_model},"This is a great movie!")
+  and genre = 'scifi'
+  and num_reviews between 100 and 500
+  and mean_rating > 3.5
+  and k = 5;
+```
+
+third example(type of vector_embedding is float[384]):
+```sql
+select rowid, name1, name2, age, vec_to_json
+from v
+where vector_embedding match lembed({embedding_model},"aaa and xxx are good friends, whose age is 18.")
+  and k = 1
+  and name1 in ('alex', 'brian', 'craig')
+  and name2 in ('Rick', 'Morty')
+  and age in (21, 18);
+```
+
+**Answer**
+Let's proceed step by step.

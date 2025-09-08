@@ -1,0 +1,58 @@
+You are an expert in semantic search and SQL. Your task is to convert a standard SQL query into a semantic vector-based query and create a new, more natural and conceptually rich question for it.
+
+**Background:**
+The goal is to transform questions that rely on exact string matching (e.g., `name = 'Stanley Kubrick'`) into questions that require semantic understanding (e.g., "the director of 2001: A Space Odyssey").
+
+**Guiding Principles for the New Question:**
+1.  **Semantic Ambiguity:** The new question should use descriptive, conceptual, or subjective words, not exact database values. (e.g., "courses for beginners about neural networks" instead of "course named 'Deep Learning Intro'").
+2.  **Concept-Driven:** The query should be about a "concept" (e.g., "AI writing articles") rather than a specific keyword.
+3.  **Intent Preservation:** The new question's goal must be the same as the original (e.g., find a movie), but the filtering method should be semantic.
+4.  **Vector Model Justifiability:** The semantic similarity must be something a model like 'all-MiniLM-L6-v2' can understand (e.g., literary style, concepts, descriptions).
+5.  **Clear Vectorization Target:** The new question must clearly correspond to the provided vector column.
+6.  **LIKE to Semantic:** For `LIKE` queries, transform the partial match into a conceptual description.
+7.  **Use description:** Try to ask questions about the description column as much as possible, and minimize questions about the name column.
+
+**Input Data:**
+* **Original Question:** "{original_question}"
+* **Original SQL:** "{original_sql}"
+* **Database Schema Snippet (Table and Column to be converted):**
+    * Table: `{table_name}`
+    * Column for Semantic Search: `{column_name}`
+    * Vector Column Name: `{vector_column_name}`
+* **Original Value:** "{original_value}"
+
+**Your Task:**
+Generate a JSON object with two keys: "Vec_question" and "VECSQL".
+
+1.  **"Vec_question":** Create a new question that satisfies the guiding principles. The new question should lead a user to find the same result as the original SQL, but by describing the concept of "{original_value}" instead of stating it directly.
+2.  **"VECSQL":** Modify the original SQL's `WHERE` clause. Replace the exact match (e.g., `... {column_name} = '{original_value}' ...`) with a vector search clause. The format for the vector search is:
+    `... {vector_column_name} MATCH lembed('{embedding_model_name}', "A NEW SEMANTIC DESCRIPTION") LIMIT 10`
+    The "A NEW SEMANTIC DESCRIPTION" should be a concise phrase that semantically represents "{original_value}". Often, the phrasing from your new "Vec_question" can be used here. Use a `LIMIT` to keep the results manageable.
+
+**Example:**
+* **Input:**
+    * Original Question: "What is the average number of Mubi users who love movies directed by Stanley Kubrick?"
+    * Original SQL: "SELECT AVG(movie_popularity) FROM movies WHERE director_name = 'Stanley Kubrick'"
+    * Schema: Table `movies`, Column `director_name`, Vector Column `director_name_embedding`.
+    * Original Value: "Stanley Kubrick"
+* **Correct Output (JSON):**
+    {{
+        "Vec_question": "What is the average popularity on Mubi for films by the director known for '2001: A Space Odyssey' and 'A Clockwork Orange'?",
+        "VECSQL": "SELECT AVG(movie_popularity) FROM movies WHERE director_name_embedding MATCH lembed('all-MiniLM-L6-v2', \\"the director of '2001: A Space Odyssey' and 'A Clockwork Orange'\\") LIMIT 10"
+    }}
+
+Now, please process the following input. Provide ONLY the raw JSON object as your response.
+
+**Input Data:**
+* **Original Question:** "{original_question}"
+* **Original SQL:** "{original_sql}"
+* **Database Schema Snippet:**
+    * Table: `{table_name}`
+    * Column for Semantic Search: `{column_name}`
+    * Vector Column Name: `{vector_column_name}`
+* **Original Value:** "{original_value}"
+
+**Your JSON Output:**
+```json
+  generate to there
+```
