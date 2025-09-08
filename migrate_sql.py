@@ -350,19 +350,42 @@ class SQLiteToClickHouseConverter:
             final_query = f"{final_with_clause}\n\n{modified_blocks['main']};"
             return final_query
             
+
+# 定义一组 SQL 关键字和已知函数，用于辅助判断标识符是否需要加引号
+SQL_KEYWORDS_FUNCTIONS = {
+    'ABS', 'ACOS', 'ALL', 'ALTER', 'AND', 'ANY', 'AS', 'ASC', 'ASIN', 'ATAN', 'AVG',
+    'BETWEEN', 'BY', 'CASE', 'CAST', 'CEIL', 'CEILING', 'CHAR', 'CHARACTER', 'CHECK',
+    'COALESCE', 'CONCAT', 'CONSTRAINT', 'COS', 'COT', 'COUNT', 'CREATE', 'CROSS',
+    'CURRENT_DATE', 'CURRENT_TIME', 'CURRENT_TIMESTAMP', 'CURRENT_USER', 'DATE',
+    'DECIMAL', 'DECLARE', 'DEFAULT', 'DELETE', 'DESC', 'DISTINCT', 'DROP', 'ELSE',
+    'END', 'ESCAPE', 'EXCEPT', 'EXISTS', 'EXP', 'EXTRACT', 'FALSE', 'FETCH', 'FLOOR',
+    'FOR', 'FOREIGN', 'FROM', 'FULL', 'FUNCTION', 'GROUP', 'HAVING', 'IN', 'INDEX',
+    'INNER', 'INSERT', 'INT', 'INTEGER', 'INTERSECT', 'INTERVAL', 'INTO', 'IS',
+    'JOIN', 'KEY', 'LEFT', 'LENGTH', 'LIKE', 'LIMIT', 'LN', 'LOG', 'LOG10', 'LOWER',
+    'LTRIM', 'MATCH', 'MAX', 'MIN', 'MOD', 'NATURAL', 'NOT', 'NULL', 'NULLIF',
+    'NUMERIC', 'OF', 'ON', 'OR', 'ORDER', 'OUTER', 'PI', 'POWER', 'PRIMARY',
+    'PROCEDURE', 'REAL', 'REFERENCES', 'RIGHT', 'ROUND', 'ROW', 'ROWNUM', 'RTRIM',
+    'SELECT', 'SESSION_USER', 'SET', 'SIGN', 'SIN', 'SMALLINT', 'SOME', 'SQRT',
+    'SUBSTR', 'SUBSTRING', 'SUM', 'SYSTEM_USER', 'TABLE', 'TAN', 'THEN', 'TIME',
+    'TIMESTAMP', 'TO', 'TRANSLATE', 'TRIGGER', 'TRIM', 'TRUE', 'TRUNC', 'TRUNCATE',
+    'UNION', 'UNIQUE', 'UPDATE', 'UPPER', 'USER', 'USING', 'VALUES', 'VARCHAR',
+    'VIEW', 'WHEN', 'WHERE', 'WITH',
+    # 自定义的或非标准的也加入，如 lembed
+    'LEMBED'
+}
+
 class SQLiteToPostgreSQLConverter:
     """
-    Automatically converts complex SQLite queries using sqlite-vec and sqlite-lembed
-    to optimized PostgreSQL queries using the pgvector extension.
+    自动将使用 sqlite-vec 和 sqlite-lembed 的复杂 SQLite 查询
+    转换为优化的、使用 pgvector 扩展的 PostgreSQL 查询。
 
-    This script assumes that a 'lembed(model, text)' function is available in PostgreSQL
-    to generate vector embeddings, as specified in the user request.
-
-    Core Features (Adapted for PostgreSQL):
-    - **Direct Vector Operations**: Uses the '<->' distance operator native to pgvector.
-    - **Simplified Query Structure**: Eliminates the need for a WITH clause for the reference vector in single searches.
-    - **CTE Push-Down for Multi-Search**: Retains the efficient strategy of pre-filtering joins using Common Table Expressions (CTEs) for queries with multiple vector searches.
-    - **Robust Parsing**: Inherits the original script's ability to handle CTEs, table aliases, and various k-value constraints (`AND k=N` or `LIMIT N`).
+    核心特性 (V3 - 优化列顺序):
+    - **优化列顺序**: 在单向量搜索注入中，将生成的 `distance` 列移动到 SELECT 字段的末尾。
+    - **修正引号处理**: 重写了标识符加引号的逻辑，采用更稳定的方式，完美处理SQL语句中的字符串字面量。
+    - **PostgreSQL 语法适配**: 生成使用 '<->' 操作符的 pgvector 标准语法。
+    - **智能标识符加引号**: 自动为表名和列名添加双引号，以符合PostgreSQL的大小写敏感规则。
+    - **增强的lembed解析**: 支持解析由单引号或双引号包裹的字符串。
+    - **保留复杂查询转换**: 完整保留了对 CTE、多向量搜索、预过滤下推等复杂场景的支持。
     """
 
     def __init__(self, sqlite_query):
@@ -371,33 +394,68 @@ class SQLiteToPostgreSQLConverter:
         self.original_ctes = {}
 
     def _get_placeholder_embedding(self, text: str, model: str) -> str:
-        """
-        Generates a lembed function call string for the given text and model.
-        Escapes single quotes in the text to prevent SQL syntax errors.
-        """
         escaped_text = text.replace("'", "''")
         return f"lembed('{model}', '{escaped_text}')"
 
+    def _quote_all_identifiers(self, sql: str) -> str:
+        identifier_pattern = re.compile(r'\b([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)\b')
+        string_literal_pattern = re.compile(r"('(?:''|[^'])*'|\"(?:\"\"|[^\"])*\")")
+
+        def replacer(match):
+            full_identifier = match.group(1)
+            parts = full_identifier.split('.')
+            if len(parts) == 1 and parts[0].upper() in SQL_KEYWORDS_FUNCTIONS:
+                return parts[0]
+            
+            quoted_parts = [f'"{p}"' for p in parts if not p.isnumeric()]
+            return '.'.join(quoted_parts)
+
+        def process_code_part(part):
+            return identifier_pattern.sub(replacer, part)
+
+        last_end = 0
+        result_parts = []
+        for match in string_literal_pattern.finditer(sql):
+            start, end = match.span()
+            code_part = sql[last_end:start]
+            result_parts.append(process_code_part(code_part))
+            result_parts.append(match.group(0))
+            last_end = end
+        
+        final_code_part = sql[last_end:]
+        result_parts.append(process_code_part(final_code_part))
+        
+        return "".join(result_parts)
+
     def _parse_cte_structure(self):
-        """Separates CTE definitions from the main query body."""
         with_clause_match = re.match(r'\s*WITH\s+', self.sqlite_query, re.IGNORECASE)
         if not with_clause_match:
             return self.sqlite_query
 
         query_after_with = self.sqlite_query[with_clause_match.end():]
         open_parens, last_cte_end_index, in_string = 0, 0, False
+        string_char = ''
 
         for i, char in enumerate(query_after_with):
-            if char == "'": in_string = not in_string
-            if in_string: continue
-            if char == '(': open_parens += 1
-            elif char == ')':
-                open_parens -= 1
-                if open_parens == 0:
-                    next_segment = query_after_with[i + 1:].lstrip()
-                    if not next_segment.startswith(','):
-                        last_cte_end_index = i + 1
-                        break
+            if not in_string and char in ("'", '"'):
+                in_string = True
+                string_char = char
+            elif in_string and char == string_char:
+                if i + 1 < len(query_after_with) and query_after_with[i+1] == string_char:
+                    continue
+                in_string = False
+                string_char = ''
+            
+            if not in_string:
+                if char == '(':
+                    open_parens += 1
+                elif char == ')':
+                    open_parens -= 1
+                    if open_parens == 0:
+                        next_segment = query_after_with[i + 1:].lstrip()
+                        if not next_segment.startswith(','):
+                            last_cte_end_index = i + 1
+                            break
         
         if last_cte_end_index == 0: return self.sqlite_query
 
@@ -406,9 +464,17 @@ class SQLiteToPostgreSQLConverter:
         
         balance, last_split = 0, 0
         in_string = False
+        string_char = ''
         for i, char in enumerate(cte_definitions_str):
-            if char == "'":
-                in_string = not in_string
+            if not in_string and char in ("'", '"'):
+                in_string = True
+                string_char = char
+            elif in_string and char == string_char:
+                if i + 1 < len(cte_definitions_str) and cte_definitions_str[i+1] == string_char:
+                    continue
+                in_string = False
+                string_char = ''
+
             if not in_string:
                 if char == '(':
                     balance += 1
@@ -427,7 +493,6 @@ class SQLiteToPostgreSQLConverter:
         return main_query
 
     def _get_aliases_in_scope(self, query_block: str) -> dict[str, str]:
-        """Parses and returns all table aliases within a given query block."""
         aliases = {}
         from_join_content_match = re.search(
             r'\bFROM\s+(.*?)(?=\bWHERE|\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', 
@@ -442,17 +507,18 @@ class SQLiteToPostgreSQLConverter:
         table_parts = [p.strip() for p in processed_content.split('&&&')]
 
         for part in table_parts:
-            match = re.match(r'([\w\.\(\)]+)(?:\s+AS)?\s*(\w*)', part.strip())
+            match = re.match(r'([\w\.\(\)]+|\(.*\))(?:\s+AS)?\s*(\w*)', part.strip(), re.S)
             if match:
                 table_name, alias = match.groups()
-                if not alias or alias.upper() in SQL_KEYWORDS:
+                table_name = table_name.strip()
+                alias = alias.strip()
+                if not alias or alias.upper() in SQL_KEYWORDS_FUNCTIONS:
                     aliases[table_name] = table_name
                 else:
                     aliases[alias] = table_name
         return aliases
 
     def _split_where_conditions(self, where_clause: str) -> list[str]:
-        """Splits a WHERE clause by 'AND', correctly handling 'BETWEEN ... AND ...'."""
         if not where_clause:
             return []
         placeholder = "##_AND_##"
@@ -462,12 +528,16 @@ class SQLiteToPostgreSQLConverter:
         return unmasked_conditions
 
     def _process_query_block(self, query_block: str) -> tuple[str, dict, dict, dict]:
-        """Processes a single query block to identify vector searches and filters."""
         aliases_in_scope = self._get_aliases_in_scope(query_block)
 
         match_pattern = re.compile(
-            r"(?P<full_clause>(?:(?P<table_alias>\w+)\.)?(?P<column_name>\w+)\s+MATCH\s+lembed\('(?P<model>.*?)',\s*'(?P<text>.*?)'\))",
-            re.IGNORECASE | re.DOTALL
+            r"""(?P<full_clause>
+                (?:(?P<table_alias>\w+)\.)?(?P<column_name>\w+)\s+MATCH\s+
+                lembed\('(?P<model>[^']*)',\s*
+                (?:'(?P<text_single>(?:''|[^'])*)'|"(?P<text_double>(?:""|[^"])*)")
+                \)
+            )""",
+            re.IGNORECASE | re.DOTALL | re.VERBOSE
         )
         k_pattern = re.compile(
             r"(?P<full_clause>(?:(?P<table_alias>\w+)\.)?k\s*=\s*(?P<k_value>\d+))", re.IGNORECASE
@@ -484,14 +554,19 @@ class SQLiteToPostgreSQLConverter:
         limit_was_used_as_k = False
 
         for match in vector_search_matches:
-            alias = match.group('table_alias')
+            match_dict = match.groupdict()
+            match_dict['text'] = (match_dict.pop('text_single') or match_dict.pop('text_double') or "").replace("''", "'")
+
+            alias = match_dict['table_alias']
             if not alias:
                 if len(aliases_in_scope) == 1:
                     alias = list(aliases_in_scope.keys())[0]
                 else:
-                    real_name_alias = next((k for k,v in aliases_in_scope.items() if k==v), None)
-                    if real_name_alias: alias = real_name_alias
-                    else: raise ValueError(f"Ambiguity Error: Vector search on column '{match.group('column_name')}' in a multi-table query requires a table alias.")
+                    real_name_alias = next((k for k,v in aliases_in_scope.items() if k == v), None)
+                    if real_name_alias:
+                        alias = real_name_alias
+                    else:
+                        raise ValueError(f"歧义错误: 在多表查询中发现无别名的向量搜索列 '{match_dict['column_name']}'。请为该列表明表别名。")
 
             corresponding_k_match = next((k for k in k_matches if k.group('table_alias') == alias), None)
             if not corresponding_k_match and len(k_matches) == 1 and not k_matches[0].group('table_alias'):
@@ -505,19 +580,25 @@ class SQLiteToPostgreSQLConverter:
                 limit_was_used_as_k = True
             
             if not k_info:
-                raise ValueError(f"Constraint Missing: Vector search on table '{alias}' requires a 'k=N' or 'LIMIT N' constraint.")
+                raise ValueError(f"约束缺失: 在表 '{alias}' 上的向量搜索缺少 'k=N' 或 'LIMIT N' 约束。")
 
             search_id = str(uuid.uuid4())
-            self.vector_searches[search_id] = {"match": match.groupdict(), "k": k_info}
-            local_searches[alias] = { "id": search_id, "match_clause": match.group('full_clause'), "k_clause": k_info['full_clause'] }
+            self.vector_searches[search_id] = {"match": match_dict, "k": k_info}
+            local_searches[alias] = { "id": search_id, "match_clause": match_dict['full_clause'], "k_clause": k_info['full_clause'] }
 
         where_match = re.search(r'\bWHERE\s+(.*?)(?=\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', query_block, re.S | re.I)
         pushed_filters, remaining_conditions = {}, []
 
         if where_match:
             for cond in self._split_where_conditions(where_match.group(1)):
-                if any(s['match_clause'] in cond or s['k_clause'] in cond for s in local_searches.values()):
+                is_vec_clause = False
+                for s in local_searches.values():
+                    if s['match_clause'] in cond or s['k_clause'] in cond:
+                        is_vec_clause = True
+                        break
+                if is_vec_clause:
                     continue
+
                 cond_aliases = set(re.findall(r'(\w+)\.', cond))
                 target_alias, can_push = None, False
                 if len(cond_aliases) == 1:
@@ -526,33 +607,47 @@ class SQLiteToPostgreSQLConverter:
                 elif not cond_aliases and len(local_searches) == 1:
                     target_alias = list(local_searches.keys())[0]
                     can_push = True
-                if can_push: pushed_filters.setdefault(target_alias, []).append(cond)
-                else: remaining_conditions.append(cond)
+                
+                if can_push:
+                    pushed_filters.setdefault(target_alias, []).append(cond)
+                else:
+                    remaining_conditions.append(cond)
         
         modified_block = query_block
         if limit_was_used_as_k:
             modified_block = limit_pattern.sub("", modified_block)
 
-        if where_match: modified_block = modified_block.replace(where_match.group(0), "")
-        
-        if remaining_conditions:
-            new_where = "WHERE " + " AND ".join(remaining_conditions)
-            insert_point = re.search(r'(\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', modified_block, re.S | re.I)
-            modified_block = f"{modified_block[:insert_point.start()]} {new_where} {modified_block[insert_point.start():]}"
+        if where_match:
+            clean_where_parts = []
+            original_conditions = self._split_where_conditions(where_match.group(1))
+            all_vec_clauses = {s['match_clause'] for s in local_searches.values()} | \
+                              {s['k_clause'] for s in local_searches.values()}
+            all_pushed_filters_flat = {pf for pf_list in pushed_filters.values() for pf in pf_list}
+            
+            for cond in original_conditions:
+                if cond not in all_vec_clauses and cond not in all_pushed_filters_flat:
+                    clean_where_parts.append(cond)
+
+            if clean_where_parts:
+                new_where_clause = "WHERE " + " AND ".join(clean_where_parts)
+                modified_block = modified_block.replace(where_match.group(0), new_where_clause)
+            else:
+                modified_block = modified_block.replace(where_match.group(0), '')
         
         from_join_pattern = re.compile(r'\b(FROM|JOIN)\s+([\w\.]+)(?:\s+AS)?\s*(\w*)', re.IGNORECASE)
         def replace_from_join(m):
             keyword, table, alias = m.groups()
-            effective_alias = alias if alias and alias.upper() not in SQL_KEYWORDS else table
+            effective_alias = alias if alias and alias.upper() not in SQL_KEYWORDS_FUNCTIONS else table
             if effective_alias in local_searches:
                 return f"{keyword} {effective_alias}_filtered AS {effective_alias}"
             return m.group(0)
-        modified_block = from_join_pattern.sub(replace_from_join, modified_block)
+        
+        if len(self.vector_searches) > 1:
+            modified_block = from_join_pattern.sub(replace_from_join, modified_block)
             
         return modified_block.strip(), local_searches, pushed_filters, aliases_in_scope
 
     def convert(self) -> str:
-        """Executes the full conversion from SQLite-vec to PostgreSQL-pgvector syntax."""
         main_query = self._parse_cte_structure()
         
         modified_blocks, all_local_searches, all_pushed_filters, all_aliases = {}, {}, {}, {}
@@ -571,11 +666,13 @@ class SQLiteToPostgreSQLConverter:
         all_aliases.update(aliases)
 
         if not self.vector_searches:
-            logging.info("No conversion needed: Vector search syntax not detected.")
-            return self.sqlite_query + ";"
+            logging.info("无需转换：未检测到向量搜索语法。")
+            final_sql = self.sqlite_query if self.sqlite_query.endswith(';') else self.sqlite_query + ";"
+            return self._quote_all_identifiers(final_sql)
 
+        final_query = ""
         if len(self.vector_searches) == 1:
-            logging.info("Single vector search detected, using in-place conversion strategy for PostgreSQL.")
+            logging.info("检测到单个向量搜索，采用就地转换优化策略。")
             
             sid, s_info = next(iter(self.vector_searches.items()))
             
@@ -584,37 +681,35 @@ class SQLiteToPostgreSQLConverter:
 
             original_block = self.original_ctes.get(search_block_key, main_query)
             clean_block = original_block.replace(s_info['match']['full_clause'], '1=1')
-            
             if "limit" in s_info['k']['full_clause'].lower():
                 clean_block = re.sub(r'\bLIMIT\s+\d+', '', clean_block, flags=re.I|re.S)
             else:
                 clean_block = clean_block.replace(s_info['k']['full_clause'], '1=1')
 
-            clean_block = re.sub(r'\bAND\s+1=1\b', '', clean_block, flags=re.I)
-            clean_block = re.sub(r'\b1=1\s+AND\b', '', clean_block, flags=re.I)
+            clean_block = re.sub(r'\bAND\s+1=1\b|\b1=1\s+AND\b', '', clean_block, flags=re.I)
             clean_block = re.sub(r'\bWHERE\s+1=1\b', '', clean_block, flags=re.I)
 
-            from_match = re.search(r'\s+\bFROM\b', clean_block, flags=re.I | re.S)
+            from_match = re.search(r'\sFROM\b', clean_block, re.I | re.S)
             if not from_match:
-                raise ValueError("Conversion failed: Could not locate FROM keyword in the query block.")
+                raise ValueError("转换失败：无法在查询块中定位 FROM 关键字。")
 
             select_clause_part = clean_block[:from_match.start()]
             rest_of_block = clean_block[from_match.start():]
             
             placeholder = self._get_placeholder_embedding(s_info['match']['text'], s_info['match']['model'])
-            distance_op_call = f"({s_info['match']['table_alias'] or search_alias}.{s_info['match']['column_name']} <-> {placeholder})"
+            table_ref = s_info['match']['table_alias'] or search_alias
+            distance_calc = f"{table_ref}.{s_info['match']['column_name']} <-> {placeholder}"
+            
             aliased_distance_pattern = r'\b' + re.escape(search_alias) + r'\.distance\b'
             bare_distance_pattern = r'(?<!\.)\bdistance\b'
             
             if re.search(aliased_distance_pattern, select_clause_part, flags=re.I):
-                select_clause_part = re.sub(aliased_distance_pattern, f"{distance_op_call} AS distance", select_clause_part, flags=re.I, count=1)
+                select_clause_part = re.sub(aliased_distance_pattern, f"{distance_calc} AS distance", select_clause_part, flags=re.I, count=1)
             elif re.search(bare_distance_pattern, select_clause_part, flags=re.I):
-                select_clause_part = re.sub(bare_distance_pattern, f"{distance_op_call} AS distance", select_clause_part, flags=re.I, count=1)
+                select_clause_part = re.sub(bare_distance_pattern, f"{distance_calc} AS distance", select_clause_part, flags=re.I, count=1)
             else:
-                select_clause_part = re.sub(
-                    r'(\bSELECT(?:\s+DISTINCT)?\s+)(.*)',
-                    rf'\1\2, {distance_op_call} AS distance',
-                    select_clause_part, count=1, flags=re.I | re.S).strip()
+                # 【V3 修改】将 distance 注入改为追加到末尾
+                select_clause_part = select_clause_part.strip().rstrip(',') + f", {distance_calc} AS distance"
 
             clean_block = select_clause_part + rest_of_block
             clean_block = re.sub(r'\bORDER BY.*', '', clean_block, flags=re.I|re.S).strip()
@@ -623,46 +718,40 @@ class SQLiteToPostgreSQLConverter:
             
             final_cte_strings = []
             main_part = ""
-
-            for name, body in self.original_ctes.items():
-                body_to_add = clean_block if name == search_block_key else body
-                indented_body = "    " + body_to_add.replace("\n", "\n    ")
-                final_cte_strings.append(f"{name} AS (\n{indented_body}\n)")
-            
-            if search_block_key == 'main':
-                main_part = clean_block
+            if self.original_ctes:
+                with_prefix = "WITH "
+                for name, body in self.original_ctes.items():
+                    body_to_add = clean_block if name == search_block_key else body
+                    indented_body = "    " + body_to_add.replace("\n", "\n    ")
+                    final_cte_strings.append(f"{name} AS (\n{indented_body}\n)")
+                main_part = main_query if search_block_key != 'main' else clean_block
+                final_query = with_prefix + ",\n\n".join(final_cte_strings) + "\n\n" + main_part
             else:
-                main_part = main_query
-            
-            if final_cte_strings:
-                with_clause = "WITH\n" + ",\n\n".join(final_cte_strings)
-                return f"{with_clause}\n\n{main_part};"
-            else:
-                return f"{main_part};"
+                final_query = clean_block
 
-        else: # Multi-vector search logic
-            logging.info(f"{len(self.vector_searches)} vector searches detected, using CTE push-down filtering strategy for PostgreSQL.")
+        else: # 多向量搜索逻辑
+            logging.info(f"检测到 {len(self.vector_searches)} 个向量搜索，采用CTE下推过滤策略。")
             output_parts = []
 
             filtering_ctes = []
-            for block_name, local_searches in all_local_searches.items():
-                for alias, local_search in local_searches.items():
+            for block_name, local_searches_in_block in all_local_searches.items():
+                for alias, local_search in local_searches_in_block.items():
                     info = self.vector_searches[local_search['id']]
                     table_name = all_aliases.get(alias, alias)
-                    
-                    placeholder = self._get_placeholder_embedding(info['match']['text'], info['match']['model'])
-                    
                     where_for_cte = ""
-                    pushed_filters = all_pushed_filters.get(block_name, {}).get(alias, [])
-                    if pushed_filters:
-                        filters = [re.sub(r'\b' + alias + r'\.', '', f, flags=re.I) for f in pushed_filters]
+                    pushed_filters_list = all_pushed_filters.get(block_name, {}).get(alias, [])
+                    if pushed_filters_list:
+                        filters = [re.sub(r'\b' + re.escape(alias) + r'\.', '', f, flags=re.I) for f in pushed_filters_list]
                         where_for_cte = f"WHERE {' AND '.join(filters)}"
                     
+                    placeholder = self._get_placeholder_embedding(info['match']['text'], info['match']['model'])
+                    distance_calc = f"{info['match']['column_name']} <-> {placeholder}"
+
                     cte = dedent(f"""\
                         {alias}_filtered AS (
                             SELECT
                                 *,
-                                ({info['match']['column_name']} <-> {placeholder}) AS distance
+                                {distance_calc} AS distance
                             FROM {table_name}
                             {where_for_cte}
                             ORDER BY distance
@@ -677,12 +766,11 @@ class SQLiteToPostgreSQLConverter:
                 modified_original_ctes.append(f"{name} AS (\n{modified_body}\n)")
             if modified_original_ctes: output_parts.append(",\n\n".join(modified_original_ctes))
             
-            if not output_parts:
-                 return f"{modified_blocks['main']};"
-
             final_with_clause = "WITH\n" + ",\n\n".join(filter(None, output_parts))
-            final_query = f"{final_with_clause}\n\n{modified_blocks['main']};"
-            return final_query
+            final_query = f"{final_with_clause}\n\n{modified_blocks['main']}"
+
+        final_sql = final_query if final_query.endswith(';') else final_query + ";"
+        return self._quote_all_identifiers(final_sql)
 
 if __name__ == '__main__':
     import json
@@ -694,7 +782,8 @@ if __name__ == '__main__':
             sql = item['sql']
             print('='*40)
             print(sql)
-            converter = SQLiteToClickHouseConverter(sql)
+            converter = SQLiteToPostgreSQLConverter(sql)
+            # converter = SQLiteToClickHouseConverter(sql)
             print('-'*20)
             ch_sql = converter.convert()
             print(ch_sql)

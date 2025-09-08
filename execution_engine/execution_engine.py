@@ -154,7 +154,7 @@ class ExecutionEngine:
             # --- 对于PostgreSQL和ClickHouse，可以先翻译再执行 ---
             else:
                 translated_sql = self._translate_sql(sql, db_type)
-                logger.info(f"翻译后的SQL ({db_type}): {translated_sql}")
+                logger.debug(f"翻译后的SQL ({db_type}): {translated_sql}")
                 
                 if db_type == 'postgresql':
                     db_config = self.config['database_connections']['postgresql'].copy()

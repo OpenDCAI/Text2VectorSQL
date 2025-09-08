@@ -522,7 +522,7 @@ def migrate_to_clickhouse(args, db_name):
 def main():
     parser = argparse.ArgumentParser(description="一键将 SQLite 数据库（支持 sqlite-vec）迁移到 PostgreSQL 或 ClickHouse。")
     
-    parser.add_argument('--source', default='/mnt/b_public/data/wangzr/Text2VectorSQL/synthesis/toy_spider/results/vector_databases_toy/game_injury/game_injury.sqlite', help="源 SQLite 数据库文件路径 (.db 或 .sqlite)。")
+    parser.add_argument('--source', default='/mnt/b_public/data/wangzr/Text2VectorSQL/synthesis/toy_spider/results/vector_databases_toy/musical/musical.sqlite', help="源 SQLite 数据库文件路径 (.db 或 .sqlite)。")
     parser.add_argument('--target', default='postgresql', choices=['postgresql', 'clickhouse'], help="目标数据库类型。")
     parser.add_argument('--host', default='localhost', help="目标数据库主机地址。")
     parser.add_argument('--user', help="postgres")
