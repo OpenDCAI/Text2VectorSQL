@@ -34,12 +34,13 @@ def write_large_json(data: List[Dict], output_path: str, chunk_size: int = 500):
         f.write(']')  # 结束 JSON 数组
 
 
-def process_spider_dataset(base_dir="train"):
-    """处理BIRD数据集的表信息，为每个表添加描述和示例数据"""
+def process_toy_dataset(base_dir="train/toy_spider",output_dir = "sqlite/results/toy_spider",output_json_name="enhanced_train_tables.json"):
+    """处理数据集的表信息，为每个表添加描述和示例数据"""
     # 1. 加载table.json
-    table_json_path = os.path.join(base_dir, "table.json")
+    train_databases = base_dir
+    table_json_path = os.path.join(base_dir, "tables.json")
     if not os.path.exists(table_json_path):
-        raise ValueError(f"table.json not found for {table_json_path}")
+        raise ValueError(f"tables.json not found for {table_json_path}")
         
     with open(table_json_path, "r", encoding="utf-8") as f:
         db_infos = json.load(f)
@@ -48,7 +49,6 @@ def process_spider_dataset(base_dir="train"):
     if not isinstance(db_infos, list):
         db_infos = [db_infos]
 
-    train_databases = os.path.join(base_dir, "toy_spider")
     for db_info in db_infos:
         db_id = db_info["db_id"]
         database_dir = os.path.join(train_databases, db_id)
@@ -88,18 +88,17 @@ def process_spider_dataset(base_dir="train"):
                 print(f"  Error connecting to SQLite database: {str(e)}")
                 traceback.print_exc()
    
-    output_dir = "./results"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         print(f"目录 {output_dir} 已创建")
     else:
         print(f"目录 {output_dir} 已存在")
     
-    output_path = os.path.join(output_dir, "enhanced_train_tables.json")
+    output_path = os.path.join(output_dir, output_json_name)
     # print("Processing completed!")
     write_large_json(db_infos,output_path,2000)
         
     print(f"Have generated enhanced_train_tables.json in {output_path}!")
 
 if __name__ == "__main__":
-    process_spider_dataset()
+    process_toy_dataset()

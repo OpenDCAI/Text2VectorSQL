@@ -175,21 +175,16 @@ def write_large_json(data: List[Dict], output_path: str, chunk_size: int = 500):
                 json.dump(item, f, ensure_ascii=False, indent=2)
         f.write(']')
 
-
-# =========================== 主流程 =========================== #
-if __name__ == "__main__":
+def main_generate_sql_synthesis_prompts(db_path="./results/vector_databases_toy",prompt_tpl_path="./prompt_templates/sql_synthesis_prompt.txt",functions_path="./prompt_templates/sqlite_funcs.json",output_dir="./prompts",output_name="sql_synthesis_prompts.json"):
     random.seed(42)
 
     # 目录配置 --------------------------------------------------
-    db_path       = "./results/vector_databases_toy"
-    prompt_tpl    = open("./prompt_templates/sql_synthesis_prompt.txt",
-                         encoding='utf-8').read()
-    functions     = json.load(open("./prompt_templates/sqlite_funcs.json",
-                                   encoding='utf-8'))
+    prompt_tpl    = open(prompt_tpl_path,encoding='utf-8').read()
+    functions     = json.load(open(functions_path,encoding='utf-8'))
 
     # 输出目录 --------------------------------------------------
-    prompts_dir   = "./prompts"
-    output_path   = os.path.join(prompts_dir, "sql_synthesis_prompts.json")
+    prompts_dir   = output_dir
+    output_path   = os.path.join(prompts_dir, output_name)
     os.makedirs(prompts_dir, exist_ok=True)
 
     # ----------------------------------------------------------
@@ -284,3 +279,8 @@ if __name__ == "__main__":
     # ---------------------- 写文件 ---------------------- #
     write_large_json(prompts, output_path, chunk_size=500)
     print(f"✅ 生成完成，共 {len(prompts)} 条，写入 {output_path}")
+
+# =========================== 主流程 =========================== #
+if __name__ == "__main__":
+    main_generate_sql_synthesis_prompts()
+    

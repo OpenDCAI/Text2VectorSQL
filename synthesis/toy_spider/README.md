@@ -1,13 +1,7 @@
-这个文件用来将arxiv数据集向量化,你只需要配置.env文件里面的api_key，vllm可以不用设置。你需要先设置hugging face国内镜像。
-```bash
-export HF_ENDPOINT=https://hf-mirror.com
-```
-
 # 生成schema
 ```bash
 python generate_schema.py --db-dir train/toy_spider --output-file train/table.json
 ```
-产生的结果文件在results/table.json
 
 # 加强schema
 先使用enhance_tables_toy.py往schema加入每个数据表格的示例信息，运行：
@@ -23,9 +17,6 @@ python find_semantic_rich_column.py
 ```
 
 # 为这些列生成embedding
-```bash
-export HF_ENDPOINT=https://hf-mirror.com
-```
 修改.env相关变量后，运行：
 ```bash
 python batch_vectorize_databases.py

@@ -6,14 +6,14 @@
 """
 import os, re, sys, time, json, multiprocessing as mp, traceback
 from typing import List, Dict, Tuple, Any
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
 from tqdm import tqdm
 from func_timeout import func_timeout, FunctionTimedOut
 import ijson
 
 # --- Load environment variables at the start ---
-load_dotenv()
+# load_dotenv()
 
 # ----------------------------------------------------------
 # 1. 选择 sqlite3 实现
@@ -36,14 +36,7 @@ import sqlite_lembed
 # 3. 全局常量与工具
 # ----------------------------------------------------------
 MODEL_NAME  = "all-MiniLM-L6-v2"
-
-# --- 关键修复 1: 将模型路径转换为绝对路径 ---
-# __file__ 是当前脚本的路径
-# os.path.dirname(__file__) 是脚本所在的目录
-# os.path.join(...) 构建路径
-# os.path.abspath(...) 转换为绝对路径
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, "../../model/all-MiniLM-L6-v2.e4ce9877.q8_0.gguf"))
+MODEL_PATH = "../../model/all-MiniLM-L6-v2.e4ce9877.q8_0.gguf"
 print(f"模型绝对路径: {MODEL_PATH}")
 
 
@@ -54,8 +47,8 @@ VALUES (?, lembed_model_from_file(?))
 
 SKIP_EXPLAIN_PATTERN = re.compile(r'MATCH\s+lembed\(', re.I)
 
-def _connect_sqlite(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path, timeout=30)
+def _connect_sqlite(MODEL_PATH,db_path: str) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_path, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
@@ -69,12 +62,12 @@ def _connect_sqlite(path: str) -> sqlite3.Connection:
 # ----------------------------------------------------------
 # 4. 基础执行函数 (保持不变)
 # ----------------------------------------------------------
-def execute_sql(sql: str, db_path: str) -> Tuple[Any, int]:
+def execute_sql(MODEL_PATH, sql: str, db_path: str) -> Tuple[Any, int]:
     if not sql.strip():
         raise ValueError("空 SQL")
     conn = None
     try:
-        conn = _connect_sqlite(db_path)
+        conn = _connect_sqlite(MODEL_PATH,db_path)
         cur  = conn.cursor()
         cur.execute("BEGIN")
         cur.execute(sql)
@@ -85,11 +78,14 @@ def execute_sql(sql: str, db_path: str) -> Tuple[Any, int]:
     finally:
         if conn: conn.close()
 
-def explain_ok(sql: str, db_path: str) -> bool:
+### MODIFIED ###
+# 修正 explain_ok 函数签名，使其接收 MODEL_PATH 参数
+def explain_ok(MODEL_PATH: str, sql: str, db_path: str) -> bool:
     if SKIP_EXPLAIN_PATTERN.search(sql):
         return True
     try:
-        _ = execute_sql("EXPLAIN QUERY PLAN " + sql, db_path)
+        # 现在这里调用的 execute_sql 使用的是传入的 MODEL_PATH 参数
+        _ = execute_sql(MODEL_PATH, "EXPLAIN QUERY PLAN " + sql, db_path)
         return True
     except Exception as ex:
         return False
@@ -97,11 +93,11 @@ def explain_ok(sql: str, db_path: str) -> bool:
 # ----------------------------------------------------------
 # 5. 多进程包装 (使用增强诊断的版本)
 # ----------------------------------------------------------
-def _worker(idx: int, db_id: str, sql: str, complexity: str,
+def _worker(idx: int, db_id: str, MODEL_PATH:str, sql: str, complexity: str,
             timeout: int, db_dir: str):
     db_path = os.path.join(db_dir, db_id, db_id + ".sqlite")
     try:
-        rows, col_cnt = func_timeout(timeout, execute_sql, args=(sql, db_path))
+        rows, col_cnt = func_timeout(timeout, execute_sql, args=(MODEL_PATH, sql, db_path))
         return [idx, db_id, sql, complexity, True, col_cnt, len(rows), None]
     except FunctionTimedOut:
         return [idx, db_id, sql, complexity, False, 0, 0, f"DB: {db_id} - TIMEOUT"]
@@ -122,7 +118,9 @@ def _callback(res):
         print("-------------------------------------------------------", file=sys.stderr)
 
 # ... (其他帮助函数保持不变) ...
-def parallel_execute(sql_infos: List[Dict], db_dir: str,
+### MODIFIED ###
+# 修正 parallel_execute 函数签名，使其接收并传递 MODEL_PATH
+def parallel_execute(MODEL_PATH: str, sql_infos: List[Dict], db_dir: str,
                      num_cpus: int = 8, timeout: int = 30):
     batch = 1024
     chunks = [sql_infos[i:i+batch] for i in range(0, len(sql_infos), batch)]
@@ -130,8 +128,10 @@ def parallel_execute(sql_infos: List[Dict], db_dir: str,
         print(f"并行执行进度 {i}/{len(chunks)}")
         with mp.Pool(num_cpus) as pool:
             for idx, info in enumerate(part):
+                ### MODIFIED ###
+                # 在 args 中按 _worker 的参数顺序添加 MODEL_PATH
                 pool.apply_async(_worker,
-                                 args=(idx, info["db_id"], info["sql"],
+                                 args=(idx, info["db_id"], MODEL_PATH, info["sql"],
                                        info["complexity"], timeout, db_dir),
                                  callback=_callback)
             pool.close(); pool.join()
@@ -182,19 +182,11 @@ def load_ndjson(path: str) -> List[Dict]:
 # ----------------------------------------------------------
 # 7. 主流程
 # ----------------------------------------------------------
-def main():
-    # --- 关键修复 2: 将 .env 中的数据库路径转换为绝对路径 ---
-    db_dir = os.path.abspath(os.getenv("DB_DIR_PS"))
-    llm_json_path = os.path.abspath(os.getenv("LLM_JSON_PATH_PS"))
-    output_path = os.path.abspath(os.getenv("OUTPUT_JSON_PATH_PS"))
-
-    num_cpus = int(os.getenv("NUM_CPUS_PS", 8))
-    sql_timeout = int(os.getenv("SQL_EXEC_TIMEOUT_PS", 30))
-
+def post_process_sqls(MODEL_PATH, db_dir,output_path,llm_json_path,num_cpus=8,sql_timeout=30):
     required_vars = {"DB_DIR": db_dir, "LLM_JSON_PATH": llm_json_path, "OUTPUT_JSON_PATH": output_path}
     missing_vars = [key for key, value in required_vars.items() if not value or not os.path.exists(value.rsplit('/', 1)[0])]
     if missing_vars:
-        raise ValueError(f"❌ 错误: .env 文件中缺少或路径不正确的配置: {', '.join(missing_vars)}")
+        raise ValueError(f"❌ 错误: 缺少或不正确的配置: {', '.join(missing_vars)}")
 
     print("--- 配置加载成功 ---")
     print(f"数据库绝对路径: {db_dir}")
@@ -225,14 +217,18 @@ def main():
     ok = []
     for info in tqdm(sql_infos, desc="EXPLAIN"):
         db_path_for_explain = os.path.join(db_dir, info["db_id"], info["db_id"] + ".sqlite")
-        if explain_ok(info["sql"], db_path_for_explain):
+        ### MODIFIED ###
+        # 在调用 explain_ok 时传递 MODEL_PATH
+        if explain_ok(MODEL_PATH, info["sql"], db_path_for_explain):
             ok.append(info)
     sql_infos = ok
     print("去掉语法错误后:", len(sql_infos))
 
     global shared_results
     shared_results = mp.Manager().list()
-    parallel_execute(sql_infos, db_dir, num_cpus=num_cpus, timeout=sql_timeout)
+    ### MODIFIED ###
+    # 在调用 parallel_execute 时传递 MODEL_PATH
+    parallel_execute(MODEL_PATH, sql_infos, db_dir, num_cpus=num_cpus, timeout=sql_timeout)
     sql_infos = list(shared_results)
     print("去掉运行错误/超时后:", len(sql_infos))
     analyze_col_cnt(sql_infos)
@@ -249,5 +245,5 @@ def main():
 # ----------------------------------------------------------
 # 8. CLI
 # ----------------------------------------------------------
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

@@ -85,10 +85,10 @@ def load_json_file(file):
             dataset.append(obj)
     return dataset
 
-if __name__ == "__main__":
-    results = load_json_file("./results/cot_synthesis.json")
+def post_process_cot(results_path="./results/cot_synthesis.json",db_dir="./results/vector_databases_toy",output_dir = "results"):
+    results = load_json_file(results_path)
     if not results:
-        print("Error: Input file ./results/cot_synthesis.json is empty or invalid.")
+        print(f"Error: Input file {results_path} is empty or invalid.")
         sys.exit(1)
 
     sampling_num = len(results[0]["responses"])
@@ -105,7 +105,7 @@ if __name__ == "__main__":
         batch_sqls = []
         execution_results = []
         for cot_result in batch_cot_results:
-            db_path = os.path.join("./results/vector_databases_toy", cot_result["db_id"], cot_result["db_id"] + ".sqlite")
+            db_path = os.path.join(db_dir, cot_result["db_id"], cot_result["db_id"] + ".sqlite")
             batch_db_files.extend([db_path] * sampling_num)
             batch_sqls.extend([parse_response(response) for response in cot_result["responses"]])
         
@@ -152,9 +152,11 @@ if __name__ == "__main__":
     print("major_voting_filter_num:", major_voting_filter_num)
     print("num of data samples (after execution-based major voting):", len(major_voting_results))
     
-    output_dir = "results"
     os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, "synthetic_text2sql_dataset.json"), "w", encoding="utf-8") as f:
         json.dump(major_voting_results, f, ensure_ascii=False, indent=2)
     
     print(f"Final dataset saved to {os.path.join(output_dir, 'synthetic_text2sql_dataset.json')}")
+
+# if __name__ == "__main__":
+    

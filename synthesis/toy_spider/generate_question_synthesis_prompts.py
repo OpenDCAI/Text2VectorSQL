@@ -256,11 +256,10 @@ def enhance_vector_info(sql, column_info):
                 column_info[col] = f"Vector column for similarity search: {column_info.get(col, '')}"
     return column_info
 
-if __name__ == "__main__":
+def sqlite_generate_question_synthesis_prompts(db_path="sqlite/results/vector_databases_toy",sql_infos_path="./results/synthetic_sqls.json",question_synthesis_template_path="sqlite/prompt_templates/toy_spider/question_synthesis_prompt.txt",output_json_path="sqlite/prompts/toy_spider/question_synthesis_prompts.json"):
     random.seed(42)
-    db_path = "./results/vector_databases_toy"
-    sql_infos = json.load(open("./results/synthetic_sqls.json"))
-    question_synthesis_template = open("./prompt_templates/question_synthesis_prompt.txt").read()
+    sql_infos = json.load(open(sql_infos_path))
+    question_synthesis_template = open(question_synthesis_template_path).read()
     styles = list(style2desc.keys())
 
     os.makedirs("./prompts", exist_ok=True)
@@ -319,5 +318,8 @@ if __name__ == "__main__":
         sql_info["prompt"] = prompt
         sql_info["contains_vector"] = is_vector_query
     
-    with open("./prompts/question_synthesis_prompts.json", "w", encoding="utf-8") as f:
+    with open(output_json_path, "w", encoding="utf-8") as f:
         json.dump(sql_infos, f, indent=2, ensure_ascii=False)
+
+if __name__ == "__main__":
+    sqlite_generate_question_synthesis_prompts()

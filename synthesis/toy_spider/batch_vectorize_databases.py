@@ -1,24 +1,27 @@
-# batch_vectorize_databases.py (最终修正版)
-
 import os
 import sys
 import logging
+import json
+import warnings
 from tqdm import tqdm
 import torch
 from sentence_transformers import SentenceTransformer
 import torchvision
-import json
+
+# --- 关键修复 1：在所有torch相关操作前，强制设置多进程启动方式为'spawn' ---
+# 这能从根本上解决顽固的'leaked semaphore'警告
+try:
+    torch.multiprocessing.set_start_method('spawn', force=True)
+    print("Multiprocessing start method set to 'spawn'.")
+except RuntimeError:
+    pass # 忽略如果已经被设置的错误
+
+# --- 关键修复 2：屏蔽良性的PyTorch性能警告 ---
+warnings.filterwarnings("ignore", message=".*Torch was not compiled with memory efficient attention.*")
 
 # --- Early Setup: Logging Configuration ---
 os.makedirs("logging", exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    filename='logging/out.log',
-    filemode='w'  # 修改为 'w'，每次运行清空日志，方便查看本次运行信息
-)
-
-# --- Main Application ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filename='logging/out.log', filemode='w')
 torchvision.disable_beta_transforms_warning()
 
 try:
@@ -27,145 +30,106 @@ except ImportError as e:
     logging.critical(f"Import Error: {e}. Please ensure vector_database_generate.py is accessible.")
     sys.exit(1)
 
-# --- Configuration ---
 from dotenv import load_dotenv
 load_dotenv()
 
-# --- Configuration ---
-SOURCE_DB_ROOT = os.getenv("SOURCE_DB_ROOT") # 直接从.env读取，不再设置易出错的默认值
+SOURCE_DB_ROOT = os.getenv("SOURCE_DB_ROOT")
 SQL_SCRIPT_DIR = os.getenv("SQL_SCRIPT_DIR")
 VECTOR_DB_ROOT = os.getenv("VECTOR_DB_ROOT")
 TABLE_JSON_PATH = os.getenv("TABLE_JSON_PATH")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
 model_path = os.getenv("model_path", "/mnt/b_public/data/yaodongwen/model")
-
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 def load_completion_status(status_file):
     if os.path.exists(status_file):
         try:
-            with open(status_file, 'r', encoding='utf-8') as f:
-                content = json.load(f)
-                if isinstance(content, list):
-                    logging.warning("检测到旧版状态文件格式，将进行转换。")
-                    return {db_id: "sql_generated" for db_id in content}
-                return content
-        except (json.JSONDecodeError, TypeError):
-            logging.warning(f"状态文件 '{status_file}' 格式不正确或为空，将重新开始。")
-            return {}
+            with open(status_file, 'r', encoding='utf-8') as f: return json.load(f)
+        except (json.JSONDecodeError, TypeError): return {}
     return {}
 
 def save_completion_status(status_file, completed_dbs_dict):
-    with open(status_file, 'w', encoding='utf-8') as f:
-        json.dump(completed_dbs_dict, f, indent=2)
+    with open(status_file, 'w', encoding='utf-8') as f: json.dump(completed_dbs_dict, f, indent=2)
 
-def main():
+def main_batch_vectorize_databases(SOURCE_DB_ROOT: str, SQL_SCRIPT_DIR: str, VECTOR_DB_ROOT: str, TABLE_JSON_PATH: str):
     logging.info("--- Starting Batch Database Vectorization ---")
-
-    # --- 关键检查：在开始时就验证所有必要的路径配置 ---
     if not all([SOURCE_DB_ROOT, SQL_SCRIPT_DIR, VECTOR_DB_ROOT, TABLE_JSON_PATH]):
-        logging.critical("一个或多个必要的路径配置 (SOURCE_DB_ROOT, SQL_SCRIPT_DIR, VECTOR_DB_ROOT, TABLE_JSON_PATH) 未在 .env 文件中设置。程序退出。")
+        logging.critical("One or more required configurations are missing.")
         sys.exit(1)
     
     os.makedirs(SQL_SCRIPT_DIR, exist_ok=True)
     os.makedirs(VECTOR_DB_ROOT, exist_ok=True)
-    logging.info(f"Intermediate SQL scripts will be saved to: {SQL_SCRIPT_DIR}")
-    logging.info(f"Final vector databases will be saved to: {VECTOR_DB_ROOT}")
-
     status_file_path = os.path.join(VECTOR_DB_ROOT, "processing_status.json")
-    completed_dbs = load_completion_status(status_file_path)
-    logging.info(f"已加载状态文件，发现 {len(completed_dbs)} 个有记录的数据库。")
-
-    if not os.path.exists(TABLE_JSON_PATH):
-        logging.error(f"Critical Error: The table info file was not found at '{TABLE_JSON_PATH}'")
+    
+    db_targets = []
+    if os.path.exists(SOURCE_DB_ROOT):
+        for db_id in os.listdir(SOURCE_DB_ROOT):
+            db_dir = os.path.join(SOURCE_DB_ROOT, db_id)
+            if os.path.isdir(db_dir):
+                db_path = os.path.join(db_dir, f"{db_id}.sqlite")
+                if os.path.exists(db_path):
+                    db_targets.append({'id': db_id, 'path': db_path})
+    
+    if not db_targets:
+        logging.warning(f"No valid database directories found in '{SOURCE_DB_ROOT}'.")
         return
+    logging.info(f"Found {len(db_targets)} database(s).")
 
-    model = None
-    pool = None
-    try:
-        # --- 数据库发现逻辑 (已修复) ---
-        db_targets = []
-        if not os.path.exists(SOURCE_DB_ROOT):
-            logging.error(f"源数据库目录 '{SOURCE_DB_ROOT}' 不存在！请检查 .env 配置。")
-            return
-            
-        logging.info(f"正在从 '{SOURCE_DB_ROOT}' 发现数据库...")
-        for item_name in os.listdir(SOURCE_DB_ROOT):
-            full_path = os.path.join(SOURCE_DB_ROOT, item_name)
-            # 情况1: 项目是一个目录 (例如 spider/database/concert_singer)
-            if os.path.isdir(full_path):
-                db_id = item_name
-                db_file_path = os.path.join(full_path, f"{db_id}.sqlite")
-                if not os.path.exists(db_file_path):
-                    db_file_path = os.path.join(full_path, f"{db_id}.db")
-                
-                if os.path.exists(db_file_path):
-                    db_targets.append({'id': db_id, 'path': db_file_path})
-            # 情况2: 项目是一个数据库文件 (例如 train/arxiv.db)
-            elif os.path.isfile(full_path) and item_name.endswith(('.sqlite', '.db')):
-                db_id = os.path.splitext(item_name)[0]
-                db_targets.append({'id': db_id, 'path': full_path})
-        
-        if not db_targets:
-            logging.warning(f"在 '{SOURCE_DB_ROOT}' 中未发现任何有效的数据库。程序退出。")
-            return
-            
-        dbs_to_process = [target for target in db_targets if completed_dbs.get(target['id']) != 'db_built']
-        
-        if not dbs_to_process:
-            logging.info("所有数据库都已处理完毕，程序退出。")
-            return
-
-        dbs_needing_sql = [target for target in dbs_to_process if completed_dbs.get(target['id']) != 'sql_generated']
-        if dbs_needing_sql:
-            logging.info(f"需要为 {len(dbs_needing_sql)} 个数据库生成SQL，开始加载嵌入模型...")
-            model = SentenceTransformer(EMBEDDING_MODEL_NAME, device='cpu', cache_folder=model_path)
-            logging.info("Embedding model loaded.")
+    # --- 阶段一：生成所有需要的SQL文件 (管理GPU进程池) ---
+    completed_dbs = load_completion_status(status_file_path)
+    dbs_needing_sql = [target for target in db_targets if completed_dbs.get(target['id']) not in ['sql_generated', 'db_built']]
+    
+    if dbs_needing_sql:
+        logging.info(f"--- Phase 1: Generating SQL for {len(dbs_needing_sql)} database(s) ---")
+        model = SentenceTransformer(EMBEDDING_MODEL_NAME, device='cpu', cache_folder=model_path)
+        pool = None
+        try:
             if torch.cuda.is_available():
+                logging.info("CUDA is available, starting multi-GPU process pool...")
                 pool = model.start_multi_process_pool()
                 logging.info("Multi-GPU process pool started.")
-        
-        logging.info(f"共发现 {len(db_targets)} 个数据库，将处理其中 {len(dbs_to_process)} 个。")
-
-        for target in tqdm(db_targets, desc="Overall Progress", unit="db", position=0, file=sys.stdout):
-            db_id = target['id']
-            source_db_path = target['path']
             
-            if completed_dbs.get(db_id) == 'db_built':
-                continue
-
-            logging.info(f"--- Processing database: {db_id} ---")
-            sql_script_path = os.path.join(SQL_SCRIPT_DIR, f"{db_id}_vector.sql")
-            final_db_dir = os.path.join(VECTOR_DB_ROOT, db_id)
-            final_db_path = os.path.join(final_db_dir, f"{db_id}.sqlite")
-            os.makedirs(final_db_dir, exist_ok=True)
-
-            try:
-                if completed_dbs.get(db_id) != 'sql_generated':
-                    logging.info(f"Step 1/2: Generating SQL for '{db_id}'...")
-                    generate_database_script(
-                        db_path=source_db_path, output_file=sql_script_path,
-                        embedding_model=model, pool=pool, table_json_path=TABLE_JSON_PATH
-                    )
+            for target in tqdm(dbs_needing_sql, desc="Generating SQL"):
+                db_id, source_db_path = target['id'], target['path']
+                sql_script_path = os.path.join(SQL_SCRIPT_DIR, f"{db_id}_vector.sql")
+                try:
+                    generate_database_script(db_path=source_db_path, output_file=sql_script_path, embedding_model=model, pool=pool, table_json_path=TABLE_JSON_PATH)
                     completed_dbs[db_id] = 'sql_generated'
                     save_completion_status(status_file_path, completed_dbs)
-                
-                logging.info(f"Step 2/2: Building vector DB for '{db_id}'...")
+                except Exception as e:
+                     logging.error(f"Error generating SQL for '{db_id}': {e}", exc_info=True)
+        finally:
+            if pool:
+                model.stop_multi_process_pool(pool)
+                logging.info("Multi-GPU process pool stopped after SQL generation.")
+    else:
+        logging.info("--- Phase 1: All SQL scripts already generated. ---")
+
+    # --- 阶段二：从SQL文件构建数据库 (无GPU进程) ---
+    completed_dbs = load_completion_status(status_file_path)
+    dbs_to_build = [target for target in db_targets if completed_dbs.get(target['id']) == 'sql_generated']
+    if dbs_to_build:
+        logging.info(f"--- Phase 2: Building {len(dbs_to_build)} database(s) ---")
+        for target in tqdm(dbs_to_build, desc="Building Databases"):
+            db_id = target['id']
+            sql_script_path = os.path.join(SQL_SCRIPT_DIR, f"{db_id}_vector.sql")
+            final_db_path = os.path.join(VECTOR_DB_ROOT, db_id, f"{db_id}.sqlite")
+            os.makedirs(os.path.dirname(final_db_path), exist_ok=True)
+            try:
                 build_vector_database(SQL_FILE=sql_script_path, DB_FILE=final_db_path)
                 completed_dbs[db_id] = 'db_built'
                 save_completion_status(status_file_path, completed_dbs)
-
             except Exception as e:
-                logging.error(f"Error processing '{db_id}': {e}", exc_info=True)
-                continue
+                logging.error(f"Error building database for '{db_id}': {e}", exc_info=True)
+    else:
+        logging.info("--- Phase 2: No new databases to build. ---")
 
-        logging.info("--- Batch Vectorization Process Completed ---")
-    except Exception as e:
-        logging.critical(f"A critical error occurred: {e}", exc_info=True)
-    finally:
-        if pool:
-            model.stop_multi_process_pool(pool)
-            logging.info("Process pool stopped.")
+    logging.info("--- Batch Vectorization Process Completed ---")
 
 if __name__ == '__main__':
-    main()
+    main_batch_vectorize_databases(
+        SOURCE_DB_ROOT=SOURCE_DB_ROOT,
+        SQL_SCRIPT_DIR=SQL_SCRIPT_DIR,
+        VECTOR_DB_ROOT=VECTOR_DB_ROOT,
+        TABLE_JSON_PATH=TABLE_JSON_PATH
+    )

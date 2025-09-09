@@ -156,29 +156,17 @@ def process_item(item: Dict, client: openai.OpenAI, num_candidates: int, model_n
     item['sql_candidate'] = candidates
     return item
 
-def main():
+def synthesize_candidate(model_name,api_key,base_url,num_candidates,max_workers,input_file="results/question_and_sql_pairs.json",output_file="results/candidate_sql.json"):
     """
     主函数：解析参数，读取文件，处理数据，并写入输出。
     """
-    # --- MODIFICATION START ---
-    # 移除 .env 中定义的参数
-    parser = argparse.ArgumentParser(description="使用OpenAI为向量搜索查询生成SQL候选项。")
-    parser.add_argument("--input_file", type=str, default="results/question_and_sql_pairs.json", help="输入JSON文件的路径。")
-    parser.add_argument("--output_file", type=str, default="results/candidate_sq.json", help="输出JSON文件的路径。")
-    args = parser.parse_args()
-
-    # 从 .env 文件加载配置
-    api_key = os.getenv("API_KEY")
-    base_url = os.getenv("BASE_URL")
-    model_name = os.getenv("LLM_MODEL_NAME")
-    num_candidates = int(os.getenv("NUM_CANDIDATES", 5))
-    max_workers = int(os.getenv("MAX_WORKERS", 24))
-
     # 验证关键配置
     if not api_key or not model_name:
         raise ValueError("错误: API_KEY 和 LLM_MODEL_NAME 必须在 .env 文件中设置。")
 
-    logging.info("--- 从 .env 文件加载的配置 ---")
+    logging.info("-----------------------------------")
+    logging.info("大模型开始为问题生成多个sql语句候选\n")
+    logging.info("--- 文件配置 ---")
     logging.info(f"模型: {model_name}")
     logging.info(f"基础 URL: {base_url}")
     logging.info(f"每个问题的候选项数量: {num_candidates}")
@@ -193,10 +181,10 @@ def main():
         return
 
     try:
-        with open(args.input_file, 'r', encoding='utf-8') as f:
+        with open(input_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        logging.error(f"读取或解析输入文件 '{args.input_file}' 失败: {e}")
+        logging.error(f"读取或解析输入文件 '{input_file}' 失败: {e}")
         return
 
     load_cache()
@@ -214,11 +202,11 @@ def main():
                 logging.error(f"线程池中的一个任务失败: {e}")
 
     try:
-        with open(args.output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
-        logging.info(f"已成功将更新后的数据写入 {args.output_file}")
+        logging.info(f"已成功将更新后的数据写入 {output_file}")
     except IOError as e:
-        logging.error(f"写入输出文件 '{args.output_file}' 失败: {e}")
+        logging.error(f"写入输出文件 '{output_file}' 失败: {e}")
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

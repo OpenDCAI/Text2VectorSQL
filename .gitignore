@@ -31,6 +31,8 @@ logging/
 *.sql
 *.sqlite
 
+*.yaml
+
 __pycache__
 .vscode
 *.sqlite-shm

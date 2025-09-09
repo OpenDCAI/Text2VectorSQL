@@ -11,17 +11,8 @@ from dotenv import load_dotenv
 
 # -------------------------- 环境变量读取 --------------------------
 # 自动加载同目录或上级目录中的 .env 文件
+# 这样，如果没有通过参数传递 API_KEY 和 BASE_URL，代码仍然可以尝试从 .env 文件中获取它们
 load_dotenv()
-
-API_KEY        = os.getenv("API_KEY")
-BASE_URL       = os.getenv("BASE_URL")
-LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "gpt-4o")
-MAX_WORKERS    = int(os.getenv("MAX_WORKERS", 32))
-CACHE_FILE_PATH = os.getenv("CACHE_FILE_PATH", "./results/inference_cache.json")
-
-# 固定超参数
-NUM_RESPONSES = 5
-TEMPERATURE   = 0.8
 # -----------------------------------------------------------------
 
 # 创建一个线程锁，用于在多线程环境下安全地写入缓存文件
@@ -45,26 +36,33 @@ def save_to_cache(cache_file, key, value):
         with open(cache_file, 'w', encoding='utf-8') as f:
             json.dump(cache, f, indent=2, ensure_ascii=False)
 
-def llm_inference(dataset):
+def llm_inference(dataset, api_key, base_url, llm_model_name, max_workers, cache_file_path, num_responses, temperature):
     """
     使用大语言模型为数据集中的每个提示（prompt）生成回应。
 
     Args:
         dataset: 一个包含词典的列表，每个词典都需要一个 "cot_synthesis_prompt" 键。
+        api_key (str): OpenAI API 密钥。
+        base_url (str): OpenAI API 的基础 URL。
+        llm_model_name (str): 要使用的模型名称。
+        max_workers (int): 并行处理的最大线程数。
+        cache_file_path (str): 缓存文件的路径。
+        num_responses (int): 每个提示要生成的回应数量。
+        temperature (float): 生成文本时的温度参数。
 
     Returns:
         一个包含词典的列表，每个词典都增加了 "responses" 键，其值为生成的文本列表。
     """
     # 1. 初始化 OpenAI 客户端
     try:
-        client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+        client = OpenAI(api_key=api_key, base_url=base_url)
     except Exception as e:
         print(f"Error initializing OpenAI client: {e}")
         return []
 
     # 2. 加载缓存
-    cache = load_cache(CACHE_FILE_PATH)
-    print(f"Loaded {len(cache)} items from cache file: {CACHE_FILE_PATH}")
+    cache = load_cache(cache_file_path)
+    print(f"Loaded {len(cache)} items from cache file: {cache_file_path}")
 
     # 3. 筛选出需要新处理的 prompts
     prompts_to_process = []
@@ -92,25 +90,25 @@ def llm_inference(dataset):
 
             try:
                 chat_completion = client.chat.completions.create(
-                    model=LLM_MODEL_NAME,
+                    model=llm_model_name,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt}
                     ],
-                    n=NUM_RESPONSES,
-                    temperature=TEMPERATURE
+                    n=num_responses,
+                    temperature=temperature
                 )
                 responses = [choice.message.content for choice in chat_completion.choices]
                 # 成功后写缓存
-                save_to_cache(CACHE_FILE_PATH, prompt, responses)
+                save_to_cache(cache_file_path, prompt, responses)
                 return prompt, responses
             except Exception as e:
                 error_message = f"Error processing prompt: {e}"
                 print(error_message)
-                return prompt, [error_message] * NUM_RESPONSES
+                return prompt, [error_message] * num_responses
 
         # 5. 并行处理
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_prompt = {
                 executor.submit(process_prompt, prompt): prompt
                 for prompt in prompts_to_process
@@ -136,24 +134,44 @@ def llm_inference(dataset):
     return results
 
 # -----------------------------------------------------------------
-if __name__ == "__main__":
-    # 基本路径配置
-    input_file  = "./prompts/cot_synthesis_prompts.json"
-    output_file = "./results/cot_synthesis.json"
+def synthesize_cot(
+    input_file: str,
+    output_file: str,
+    llm_model_name: str,
+    api_key: str,
+    base_url: str,
+    max_workers: int,
+    cache_file_path: str,
+    num_responses: int,
+    temperature: float
+):
+    """
+    运行完整的 CoT 合成流程，从读取输入文件到调用 LLM 推理，最后保存结果。
 
+    Args:
+        input_file (str): 包含 prompts 的输入 JSON 文件路径。
+        output_file (str): 保存结果的输出 JSON 文件路径。
+        llm_model_name (str): 要使用的模型名称。
+        api_key (str): OpenAI API 密钥。
+        base_url (str): OpenAI API 的基础 URL。
+        max_workers (int): 并行处理的最大线程数。
+        cache_file_path (str): 缓存文件的路径。
+        num_responses (int): 每个提示要生成的回应数量。
+        temperature (float): 生成文本时的温度参数。
+    """
     # 打印当前配置
     print("Running with configuration:")
-    print(f"  Model:      {LLM_MODEL_NAME}")
-    print(f"  API Key:    {'SET' if API_KEY else 'NOT SET'}")
-    print(f"  Base URL:   {BASE_URL}")
-    print(f"  Max Workers:{MAX_WORKERS}")
-    print(f"  Cache File: {CACHE_FILE_PATH}")
-    print(f"  #Responses: {NUM_RESPONSES}")
-    print(f"  Temperature:{TEMPERATURE}")
+    print(f"  Model:      {llm_model_name}")
+    print(f"  API Key:    {'SET' if api_key else 'NOT SET'}")
+    print(f"  Base URL:   {base_url}")
+    print(f"  Max Workers:{max_workers}")
+    print(f"  Cache File: {cache_file_path}")
+    print(f"  #Responses: {num_responses}")
+    print(f"  Temperature:{temperature}")
 
     # 确保目录存在
-    os.makedirs(os.path.dirname(output_file),    exist_ok=True)
-    os.makedirs(os.path.dirname(CACHE_FILE_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    os.makedirs(os.path.dirname(cache_file_path), exist_ok=True)
 
     # 读取输入数据
     try:
@@ -167,10 +185,57 @@ if __name__ == "__main__":
         exit(1)
 
     # 调用推理
-    results = llm_inference(input_dataset)
+    results = llm_inference(
+        dataset=input_dataset,
+        api_key=api_key,
+        base_url=base_url,
+        llm_model_name=llm_model_name,
+        max_workers=max_workers,
+        cache_file_path=cache_file_path,
+        num_responses=num_responses,
+        temperature=temperature
+    )
 
     # 保存输出
     if results:
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
         print(f"\nInference complete. Results saved to {output_file}")
+
+
+# 示例：如何调用这个修改后的函数
+if __name__ == '__main__':
+    # 您现在可以从任何地方（例如，配置文件、命令行参数、环境变量）获取这些值
+    # 并将它们作为参数传递给 synthesize_cot 函数。
+    # 这里我们仍然从环境变量中读取，以保持原始脚本的执行行为。
+    
+    # 基本路径配置
+    INPUT_FILE  = "./prompts/cot_synthesis_prompts.json"
+    OUTPUT_FILE = "./results/cot_synthesis.json"
+
+    # 从环境变量加载配置，并提供默认值
+    API_KEY        = os.getenv("API_KEY")
+    BASE_URL       = os.getenv("BASE_URL")
+    LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "gpt-4o")
+    MAX_WORKERS    = int(os.getenv("MAX_WORKERS", 32))
+    CACHE_FILE_PATH = os.getenv("CACHE_FILE_PATH", "./results/inference_cache.json")
+    
+    # 固定超参数
+    NUM_RESPONSES = 5
+    TEMPERATURE   = 0.8
+    
+    # 检查必要的环境变量是否已设置
+    if not API_KEY or not BASE_URL:
+        print("Error: API_KEY and BASE_URL must be set as environment variables or passed as arguments.")
+    else:
+        synthesize_cot(
+            input_file=INPUT_FILE,
+            output_file=OUTPUT_FILE,
+            llm_model_name=LLM_MODEL_NAME,
+            api_key=API_KEY,
+            base_url=BASE_URL,
+            max_workers=MAX_WORKERS,
+            cache_file_path=CACHE_FILE_PATH,
+            num_responses=NUM_RESPONSES,
+            temperature=TEMPERATURE
+        )

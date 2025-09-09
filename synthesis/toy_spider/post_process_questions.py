@@ -86,12 +86,11 @@ def edu_distance(vector1, vector2):
         distance += (num1-num2) ** 2
     return math.sqrt(distance)
 
-if __name__ == "__main__":
-    input_dataset = json.load(open("./results/question_synthesis.json"))
-    output_file = "./results/question_and_sql_pairs.json"
+def post_process_questions(input_dataset_path="./results/question_synthesis.json",output_file = "./results/question_and_sql_pairs.json",model_name_or_path = "sentence-transformers/all-mpnet-base-v2"):
+    input_dataset = json.load(open(input_dataset_path))
 
     print("loading SentenceTransformer....")
-    embedding_model = SentenceTransformer(model_name_or_path = "sentence-transformers/all-mpnet-base-v2")
+    embedding_model = SentenceTransformer(model_name_or_path)
 
     valid_questions_num = []
     result_dataset = []

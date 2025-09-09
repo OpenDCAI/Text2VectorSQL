@@ -98,33 +98,20 @@ def get_schema_for_db(db_path):
         return None
 
 
-def main():
+def generate_schema(db_dir,output_file):
     """
-    主函数，用于解析命令行参数，并为指定目录中的所有数据库生成 schema。
+    主函数，为指定目录中的所有数据库生成 schema。
     """
-    parser = argparse.ArgumentParser(description="为目录中的 SQLite 数据库生成 Schema JSON 文件。")
-    parser.add_argument(
-        "--db-dir", 
-        required=True, 
-        help="包含 .sqlite 或 .db 数据库文件的根目录路径。"
-    )
-    parser.add_argument(
-        "--output-file", 
-        required=True, 
-        help="生成的 schema JSON 文件的输出路径。"
-    )
-    args = parser.parse_args()
-
-    if not os.path.isdir(args.db_dir):
-        print(f"✖ 错误：目录 '{args.db_dir}' 不存在。")
+    if not os.path.isdir(db_dir):
+        print(f"✖ 错误：目录 '{db_dir}' 不存在。")
         return
 
-    print(f"🚀 开始从目录 '{args.db_dir}' 及其子目录中递归查找数据库...")
+    print(f"🚀 开始从目录 '{db_dir}' 及其子目录中递归查找数据库...")
 
     # --- 主要修改部分 ---
     # 使用 os.walk() 递归遍历目录以查找所有数据库文件
     db_files = []
-    for root, dirs, files in os.walk(args.db_dir):
+    for root, dirs, files in os.walk(db_dir):
         for file in files:
             if file.endswith(('.sqlite', '.db')):
                 db_files.append(os.path.join(root, file))
@@ -144,17 +131,17 @@ def main():
             all_schemas.append(schema_data)
 
     # 确保输出目录存在
-    output_dir = os.path.dirname(args.output_file)
+    output_dir = os.path.dirname(output_file)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
         
     try:
-        with open(args.output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(all_schemas, f, indent=4, ensure_ascii=False) # indent=4 格式更美观
-        print(f"\n✔ 成功创建 schema 文件 '{args.output_file}'，包含 {len(all_schemas)} 个数据库。")
+        print(f"\n✔ 成功创建 schema 文件 '{output_file}'，包含 {len(all_schemas)} 个数据库。")
     except IOError as e:
         print(f"\n✖ 写入输出文件失败: {e}")
 
 
-if __name__ == '__main__':
-    main()
+# if __name__ == '__main__':
+#     main()

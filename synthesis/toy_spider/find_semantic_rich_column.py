@@ -87,33 +87,11 @@ def process_db_info(db_info: dict, model: str, api_url: str, api_key: str, promp
 
 # --- 3. 主执行逻辑 (已更新参数) ---
 
-def main():
+def main_find_rich_semantic_column(model,api_key,api_url,input_file,output_file,no_parallel_str,prompt_template_path = "./prompt_templates/find_semantic_rich_column.txt"):
     """
     主函数，加载配置并执行处理流程。
     """
-    # 加载 .env 文件中的环境变量
-    load_dotenv()
-    logger.info("正在从 .env 文件加载配置...")
 
-    # 从环境变量中读取配置 (已更新)
-    # 必填参数
-    model = os.getenv("LLM_MODEL_NAME")
-    api_key = os.getenv("API_KEY")
-
-    # 检查必填参数是否存在 (已更新)
-    if not model or not api_key:
-        missing_vars = []
-        if not model: missing_vars.append("LLM_MODEL_NAME")
-        if not api_key: missing_vars.append("API_KEY")
-        logger.error(f"错误：以下必须的环境变量未在 .env 文件中设置: {', '.join(missing_vars)}")
-        exit(1)
-
-    # 选填参数（带默认值）(已更新)
-    api_url = os.getenv("BASE_URL", "http://123.129.219.111:3000/v1")
-    input_file = os.getenv("INPUT_FILE_FIND_SEMANTIC_RICH", "./results/enhanced_train_tables.json")
-    output_file = os.getenv("OUTPUT_FILE_FIND_SEMANTIC_RICH", "./results/find_semantic_tables.json")
-    # 处理布尔值参数
-    no_parallel_str = os.getenv("NO_PARALLEL_FIND_SEMANTIC_RICH", "false").lower()
     no_parallel = no_parallel_str in ['true', '1', 't']
     
     config = {
@@ -131,7 +109,6 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 读取提示模板
-    prompt_template_path = "./prompt_templates/find_semantic_rich_column.txt"
     try:
         with open(prompt_template_path, 'r', encoding='utf-8') as file:
             prompt_template = file.read()
@@ -187,6 +164,7 @@ def main():
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
         logger.info(f"结果成功保存到 {output_file}")
+        print(f"结果成功保存到 {output_file}")
     except Exception as e:
         logger.error(f"保存结果失败: {str(e)}")
         temp_file = output_dir / "temp_results.json"
@@ -195,4 +173,26 @@ def main():
         logger.info(f"临时结果已保存到 {temp_file}")
 
 if __name__ == '__main__':
-    main()
+    # 加载 .env 文件中的环境变量
+    load_dotenv()
+    logger.info("正在从 .env 文件加载配置...")
+
+    # 从环境变量中读取配置 (已更新)
+    # 必填参数
+    model = os.getenv("LLM_MODEL_NAME")
+    api_key = os.getenv("API_KEY")
+
+    # 检查必填参数是否存在 (已更新)
+    if not model or not api_key:
+        missing_vars = []
+        if not model: missing_vars.append("LLM_MODEL_NAME")
+        if not api_key: missing_vars.append("API_KEY")
+        logger.error(f"错误：以下必须的环境变量未在 .env 文件中设置: {', '.join(missing_vars)}")
+        exit(1)
+    # 选填参数（带默认值）(已更新)
+    api_url = os.getenv("BASE_URL", "http://123.129.219.111:3000/v1")
+    input_file = os.getenv("INPUT_FILE_FIND_SEMANTIC_RICH", "./results/enhanced_train_tables.json")
+    output_file = os.getenv("OUTPUT_FILE_FIND_SEMANTIC_RICH", "./results/find_semantic_tables.json")
+    # 处理布尔值参数
+    no_parallel_str = os.getenv("NO_PARALLEL_FIND_SEMANTIC_RICH", "false").lower()
+    main_find_rich_semantic_column(model,api_key,api_url,input_file,output_file,no_parallel_str)

@@ -1,12 +1,13 @@
 import argparse
 import json
-from tqdm import tqdm
-from functools import lru_cache
-from concurrent.futures import ThreadPoolExecutor
-import openai
 import os
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from typing import List, Dict
-from dotenv import load_dotenv # <-- Import dotenv
+
+import openai
+from dotenv import load_dotenv  # <-- Import dotenv
+from tqdm import tqdm
 
 # Load environment variables from a .env file
 load_dotenv()
@@ -69,45 +70,80 @@ def llm_inference(
     
     return results
 
+def synthesize_questions(
+    input_file: str,
+    output_file: str,
+    model_name: str,
+    api_key: str,
+    api_url: str,
+    max_workers: int
+):
+    """
+    Runs the main logic for question synthesis from a dataset.
+
+    Args:
+        input_file (str): Path to the input JSON file containing prompts.
+        output_file (str): Path to save the output JSON file with responses.
+        model_name (str): Name of the LLM model to use for inference.
+        api_key (str): The API key for the LLM service.
+        api_url (str): The base URL for the LLM API endpoint.
+        max_workers (int): The number of parallel threads for inference.
+    """
+    # Validate that essential variables are provided
+    if not api_key or not model_name:
+        raise ValueError("Error: api_key and model_name must be provided.")
+    
+    print("--- Running Synthesis with Configuration ---")
+    print(f"Model: {model_name}")
+    print(f"API URL: {api_url}")
+    print(f"Max Workers: {max_workers}")
+    print(f"Input File: {input_file}")
+    print(f"Output File: {output_file}")
+    print("------------------------------------------")
+
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    
+    with open(input_file, 'r', encoding='utf-8') as f:
+        input_dataset = json.load(f)
+    
+    results = llm_inference(
+        model=model_name,
+        dataset=input_dataset,
+        api_key=api_key,
+        api_url=api_url,
+        parallel_workers=max_workers
+    )
+    
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
+    
+    print(f"\nSynthesis complete. Results saved to {output_file}")
+
+
 if __name__ == '__main__':
-    # --- MODIFICATION START ---
-    # Arguments for model, api_key, api_url, and parallel are removed from argparse.
-    parser = argparse.ArgumentParser()
+    # This block now serves as the script's entry point.
+    # It parses command-line arguments and loads environment variables,
+    # then calls the main logic function with the collected configuration.
+    parser = argparse.ArgumentParser(description="Run LLM inference for question synthesis.")
     parser.add_argument("--input_file", type=str, default="./prompts/question_synthesis_prompts.json")
     parser.add_argument("--output_file", type=str, default="./results/question_synthesis.json")
     
     opt = parser.parse_args()
 
     # Load configuration from environment variables
-    api_key = os.getenv("API_KEY")
-    api_url = os.getenv("BASE_URL")
-    model_name = os.getenv("LLM_MODEL_NAME")
-    # Load MAX_WORKERS, cast to int, and provide a default value
-    max_workers = int(os.getenv("MAX_WORKERS", 4))
+    # This keeps the convenience of using a .env file when running the script directly.
+    api_key_env = os.getenv("API_KEY")
+    api_url_env = os.getenv("BASE_URL")
+    model_name_env = os.getenv("LLM_MODEL_NAME")
+    max_workers_env = int(os.getenv("MAX_WORKERS", 4))
 
-    # Validate that essential variables are loaded
-    if not api_key or not model_name:
-        raise ValueError("Error: API_KEY and LLM_MODEL_NAME must be set in your .env file.")
-    
-    print("--- Configuration Loaded from .env ---")
-    print(f"Model: {model_name}")
-    print(f"API URL: {api_url}")
-    print(f"Max Workers: {max_workers}")
-    print("--------------------------------------")
-    # --- MODIFICATION END ---
-    
-    # Ensure output directory exists
-    os.makedirs(os.path.dirname(opt.output_file), exist_ok=True)
-    
-    input_dataset = json.load(open(opt.input_file, encoding="utf-8"))
-    
-    results = llm_inference(
-        model=model_name, # Use variable from .env
-        dataset=input_dataset,
-        api_key=api_key, # Use variable from .env
-        api_url=api_url, # Use variable from .env
-        parallel_workers=max_workers # Use variable from .env
+    # Call the main function with the loaded configuration
+    synthesize_questions(
+        input_file=opt.input_file,
+        output_file=opt.output_file,
+        model_name=model_name_env,
+        api_key=api_key_env,
+        api_url=api_url_env,
+        max_workers=max_workers_env
     )
-    
-    with open(opt.output_file, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
