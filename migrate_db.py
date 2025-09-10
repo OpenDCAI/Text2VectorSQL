@@ -3,6 +3,7 @@ import os
 import sqlite3
 import re
 import struct
+import glob
 from contextlib import contextmanager
 
 # 尝试导入依赖，如果失败则给出提示
@@ -198,6 +199,42 @@ def translate_schema_for_clickhouse(create_sql):
     return create_table_ch
 
 
+# --- 数据库文件搜索 ---
+
+def find_database_files(source_path):
+    """递归搜索文件夹中的数据库文件（.db, .sqlite, .sqlite3）"""
+    database_files = []
+    
+    if os.path.isfile(source_path):
+        # 如果是单个文件，检查是否为数据库文件
+        if source_path.lower().endswith(('.db', '.sqlite', '.sqlite3')):
+            database_files.append(source_path)
+        else:
+            print(f"✖ 错误：文件 '{source_path}' 不是支持的数据库文件格式（.db, .sqlite, .sqlite3）")
+    elif os.path.isdir(source_path):
+        # 如果是文件夹，递归搜索所有数据库文件
+        print(f"🔍 正在搜索文件夹 '{source_path}' 中的数据库文件...")
+        
+        # 使用 glob 递归搜索所有支持的数据库文件
+        patterns = ['**/*.db', '**/*.sqlite', '**/*.sqlite3']
+        for pattern in patterns:
+            files = glob.glob(os.path.join(source_path, pattern), recursive=True)
+            database_files.extend(files)
+        
+        # 去重並排序
+        database_files = sorted(list(set(database_files)))
+        
+        if not database_files:
+            print(f"✖ 在文件夹 '{source_path}' 中未找到任何数据库文件")
+        else:
+            print(f"✔ 找到 {len(database_files)} 个数据库文件:")
+            for i, db_file in enumerate(database_files, 1):
+                print(f"  {i}. {db_file}")
+    else:
+        print(f"✖ 错误：路径 '{source_path}' 不存在或无法访问")
+    
+    return database_files
+
 # --- 数据库连接与操作 ---
 
 @contextmanager
@@ -252,7 +289,7 @@ def get_vec_info(conn):
     return vec_info
 
 
-def migrate_to_postgres(args, db_name):
+def migrate_to_postgres(args, db_name, source_db_path):
     """执行到 PostgreSQL 的迁移（支持 sqlite-vec）"""
     if not psycopg2:
         print("错误：psycopg2-binary 未安装。请运行 'pip install psycopg2-binary'")
@@ -286,7 +323,7 @@ def migrate_to_postgres(args, db_name):
                 target_cur.execute('CREATE EXTENSION IF NOT EXISTS vector;')
                 print("  ✔ pgvector 扩展已就绪。")
 
-                with sqlite_conn(args.source) as source_conn:
+                with sqlite_conn(source_db_path) as source_conn:
                     vec_tables_info = get_vec_info(source_conn)
                     if vec_tables_info:
                         print(f"✔ 检测到 {len(vec_tables_info)} 个 sqlite-vec 表: {', '.join(vec_tables_info.keys())}")
@@ -403,7 +440,7 @@ def migrate_to_postgres(args, db_name):
         if target_conn and not target_conn.closed:
             target_conn.close()
 
-def migrate_to_clickhouse(args, db_name):
+def migrate_to_clickhouse(args, db_name, source_db_path):
     """执行到 ClickHouse 的迁移（支持 sqlite-vec、移除 rowid 并强制类型转换）"""
     if not Client:
         print("错误：clickhouse-driver 未安装。请运行 'pip install clickhouse-driver'")
@@ -422,7 +459,7 @@ def migrate_to_clickhouse(args, db_name):
         print(f"正在连接到新数据库 '{db_name}'...")
         client = Client(host=args.host, port=args.port, user=args.user, password=args.password, database=db_name)
 
-        with sqlite_conn(args.source) as source_conn:
+        with sqlite_conn(source_db_path) as source_conn:
             vec_tables_info = get_vec_info(source_conn)
             if vec_tables_info:
                 print(f"✔ 检测到 {len(vec_tables_info)} 个 sqlite-vec 表: {', '.join(vec_tables_info.keys())}")
@@ -520,13 +557,13 @@ def migrate_to_clickhouse(args, db_name):
             client.disconnect()
 
 def main():
-    parser = argparse.ArgumentParser(description="一键将 SQLite 数据库（支持 sqlite-vec）迁移到 PostgreSQL 或 ClickHouse。")
+    parser = argparse.ArgumentParser(description="一键将 SQLite 数据库（支持 sqlite-vec）迁移到 PostgreSQL 或 ClickHouse。支持单个文件或文件夹批量迁移。")
     
-    parser.add_argument('--source', default='/mnt/b_public/data/wangzr/Text2VectorSQL/synthesis/toy_spider/results/vector_databases_toy/musical/musical.sqlite', help="源 SQLite 数据库文件路径 (.db 或 .sqlite)。")
-    parser.add_argument('--target', default='postgresql', choices=['postgresql', 'clickhouse'], help="目标数据库类型。")
+    parser.add_argument('--source', default='/mnt/b_public/data/wangzr/Text2VectorSQL/synthesis/toy_spider/results/vector_databases_toy/', help="源 SQLite 数据库文件路径或文件夹路径。支持 .db, .sqlite, .sqlite3 格式。")
+    parser.add_argument('--target', default='clickhouse', choices=['postgresql', 'clickhouse'], help="目标数据库类型。")
     parser.add_argument('--host', default='localhost', help="目标数据库主机地址。")
-    parser.add_argument('--user', help="postgres")
-    parser.add_argument('--password', default='postgres', help="目标数据库密码。")
+    parser.add_argument('--user', help="default")
+    parser.add_argument('--password', default='', help="目标数据库密码。")
     parser.add_argument('--port', type=int, help="目标数据库端口 (PostgreSQL 默认为 5432, ClickHouse 默认为 9000)。")
     
     args = parser.parse_args()
@@ -537,24 +574,71 @@ def main():
     if args.user is None:
         args.user = 'postgres' if args.target == 'postgresql' else 'default'
 
-
     if not os.path.exists(args.source):
-        print(f"✖ 错误：源文件 '{args.source}' 不存在。")
+        print(f"✖ 错误：源路径 '{args.source}' 不存在。")
         return
 
-    db_name = os.path.splitext(os.path.basename(args.source))[0]
-    db_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(db_name))
-    db_name = db_name.lower()
+    # 搜索数据库文件
+    database_files = find_database_files(args.source)
+    
+    if not database_files:
+        print("✖ 未找到任何可迁移的数据库文件。")
+        return
 
-    print(f"源文件: {args.source}")
-    print(f"目标类型: {args.target}")
-    print(f"目标主机: {args.host}:{args.port}")
-    print(f"自动创建/使用的数据库名: {db_name}")
+    print(f"\n📊 迁移统计:")
+    print(f"  源路径: {args.source}")
+    print(f"  目标类型: {args.target}")
+    print(f"  目标主机: {args.host}:{args.port}")
+    print(f"  找到数据库文件: {len(database_files)} 个")
 
-    if args.target == 'postgresql':
-        migrate_to_postgres(args, db_name)
-    elif args.target == 'clickhouse':
-        migrate_to_clickhouse(args, db_name)
+    # 为每个数据库文件执行迁移
+    success_count = 0
+    error_count = 0
+    
+    for i, db_file in enumerate(database_files, 1):
+        print(f"\n{'='*60}")
+        print(f"🔄 正在处理数据库 {i}/{len(database_files)}: {os.path.basename(db_file)}")
+        print(f"{'='*60}")
+        
+        try:
+            # 为每个数据库生成唯一的名称
+            db_name = os.path.splitext(os.path.basename(db_file))[0]
+            db_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(db_name))
+            db_name = db_name.lower()
+            
+            # 如果有多个数据库，添加序号以避免名称冲突
+            # if len(database_files) > 1:
+            #     db_name = f"{db_name}_{i}"
+            
+            print(f"目标数据库名: {db_name}")
+            
+            if args.target == 'postgresql':
+                migrate_to_postgres(args, db_name, db_file)
+            elif args.target == 'clickhouse':
+                migrate_to_clickhouse(args, db_name, db_file)
+            
+            success_count += 1
+            print(f"✅ 数据库 {i}/{len(database_files)} 迁移成功: {os.path.basename(db_file)}")
+            
+        except Exception as e:
+            error_count += 1
+            print(f"❌ 数据库 {i}/{len(database_files)} 迁移失败: {os.path.basename(db_file)}")
+            print(f"   错误详情: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # 显示最终统计
+    print(f"\n{'='*60}")
+    print(f"🎯 迁移完成统计:")
+    print(f"   总文件数: {len(database_files)}")
+    print(f"   成功: {success_count}")
+    print(f"   失败: {error_count}")
+    print(f"{'='*60}")
+    
+    if error_count > 0:
+        print(f"⚠️  有 {error_count} 个数据库迁移失败，请检查上述错误信息。")
+    else:
+        print("🎉 所有数据库迁移成功！")
 
 if __name__ == '__main__':
     main()
