@@ -560,10 +560,10 @@ def main():
     parser = argparse.ArgumentParser(description="一键将 SQLite 数据库（支持 sqlite-vec）迁移到 PostgreSQL 或 ClickHouse。支持单个文件或文件夹批量迁移。")
     
     parser.add_argument('--source', default='/mnt/b_public/data/wangzr/Text2VectorSQL/synthesis/toy_spider/results/vector_databases_toy/', help="源 SQLite 数据库文件路径或文件夹路径。支持 .db, .sqlite, .sqlite3 格式。")
-    parser.add_argument('--target', default='clickhouse', choices=['postgresql', 'clickhouse'], help="目标数据库类型。")
+    parser.add_argument('--target', default='postgresql', choices=['postgresql', 'clickhouse'], help="目标数据库类型。")
     parser.add_argument('--host', default='localhost', help="目标数据库主机地址。")
-    parser.add_argument('--user', help="default")
-    parser.add_argument('--password', default='', help="目标数据库密码。")
+    parser.add_argument('--user', help="postgres")
+    parser.add_argument('--password', default='postgres', help="目标数据库密码。")
     parser.add_argument('--port', type=int, help="目标数据库端口 (PostgreSQL 默认为 5432, ClickHouse 默认为 9000)。")
     
     args = parser.parse_args()
