@@ -45,3 +45,4 @@ tmp/
 *.zip
 *.db
 *.gguf
+Data_Synthesizer/data
