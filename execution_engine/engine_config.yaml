@@ -24,3 +24,15 @@ database_connections:
     password: ""               # 您的ClickHouse密码
 
   # SQLite不需要配置模板，因为它的连接就是文件路径本身
+
+  # 超时配置（单位：秒）
+timeouts:
+  embedding_service: 1      # Embedding服务调用超时
+  database_connection: 1    # 数据库连接超时
+  sql_execution: 6          # SQL执行超时
+  total_execution: 8       # 总执行超时
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

@@ -5,7 +5,10 @@ import json
 import logging
 import re
 import sys
+import signal
+import threading
 from typing import Any, Dict, List, Tuple
+from contextlib import contextmanager
 
 import psycopg2
 import requests
@@ -16,6 +19,33 @@ import clickhouse_connect
 # --- 日志设置 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("ExecutionEngine")
+
+
+class TimeoutError(Exception):
+    """自定义超时异常"""
+    pass
+
+
+@contextmanager
+def timeout_context(seconds):
+    """
+    超时上下文管理器，用于在指定时间内执行代码块
+    
+    :param seconds: 超时时间（秒）
+    """
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"操作超时 ({seconds} 秒)")
+    
+    # 设置信号处理器
+    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(seconds)
+    
+    try:
+        yield
+    finally:
+        # 恢复原来的信号处理器
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 class ExecutionEngine:
@@ -40,7 +70,19 @@ class ExecutionEngine:
             with open(config_path, 'r') as f:
                 self.config = yaml.safe_load(f)
             self.embedding_url = self.config['embedding_service']['url']
+            
+            # 加载超时配置，设置默认值
+            self.timeouts = self.config.get('timeouts', {})
+            self.embedding_timeout = self.timeouts.get('embedding_service', 30)  # 默认30秒
+            self.db_connection_timeout = self.timeouts.get('database_connection', 10)  # 默认10秒
+            self.sql_execution_timeout = self.timeouts.get('sql_execution', 60)  # 默认60秒
+            self.total_timeout = self.timeouts.get('total_execution', 120)  # 默认120秒
+            
             logger.info(f"引擎配置已从 '{config_path}' 加载。")
+            logger.info(f"超时配置: embedding={self.embedding_timeout}s, "
+                       f"db_connection={self.db_connection_timeout}s, "
+                       f"sql_execution={self.sql_execution_timeout}s, "
+                       f"total={self.total_timeout}s")
         except Exception as e:
             logger.error(f"加载配置文件 '{config_path}' 失败: {e}")
             raise
@@ -64,15 +106,21 @@ class ExecutionEngine:
             try:
                 payload = {"model": model, "texts": texts}
                 logger.info(f"正在为模型 '{model}' 请求 {len(texts)} 个文本的向量...")
-                response = requests.post(self.embedding_url, json=payload)
-                response.raise_for_status()
-                results = response.json()['embeddings']
+                
+                # 使用超时上下文管理器包装embedding服务调用
+                with timeout_context(self.embedding_timeout):
+                    response = requests.post(self.embedding_url, json=payload, timeout=self.embedding_timeout)
+                    response.raise_for_status()
+                    results = response.json()['embeddings']
                 
                 # 将返回的向量映射回原始的lembed调用
                 for i, text in enumerate(texts):
                     # 使用元组 (model, text)作为键，比字符串更可靠
                     embeddings_map[(model, text)] = results[i]
                 logger.info(f"成功获取模型 '{model}' 的向量。")
+            except TimeoutError as e:
+                logger.error(f"Embedding Service调用超时 (模型: {model}): {e}")
+                raise
             except requests.RequestException as e:
                 logger.error(f"调用Embedding Service时出错 (模型: {model}): {e}")
                 raise
@@ -131,6 +179,31 @@ class ExecutionEngine:
         """
         conn = None
         try:
+            # 使用总超时包装整个执行过程
+            with timeout_context(self.total_timeout):
+                return self._execute_with_timeout(sql, db_type, db_identifier)
+        except TimeoutError as e:
+            logger.error(f"执行总超时: {e}")
+            return {"status": "error", "message": f"执行超时: {e}"}
+        except Exception as e:
+            logger.error(f"在数据库 '{db_identifier}' ({db_type}) 上执行查询失败: {e}")
+            if conn: conn.rollback()
+            return {"status": "error", "message": str(e)}
+        finally:
+            if conn:
+                conn.close()
+
+    def _execute_with_timeout(self, sql: str, db_type: str, db_identifier: str) -> Dict[str, Any]:
+        """
+        带超时的执行方法内部实现。
+        
+        :param sql: 待执行的VectorSQL。
+        :param db_type: 数据库类型。
+        :param db_identifier: 数据库标识符。
+        :return: 包含执行结果的字典。
+        """
+        conn = None
+        try:
             # --- 对于SQLite，由于需要传递BLOB，处理方式特殊 ---
             if db_type == 'sqlite':
                 lembed_pattern = re.compile(r"lembed\('([^']*)',\s*'([^']*)'\)")
@@ -147,9 +220,14 @@ class ExecutionEngine:
                 else:
                     translated_sql = sql
 
-                conn = sqlite3.connect(db_identifier)
-                cursor = conn.cursor()
-                cursor.execute(translated_sql, params)
+                # SQLite连接（通常很快，但添加超时保护）
+                with timeout_context(self.db_connection_timeout):
+                    conn = sqlite3.connect(db_identifier)
+                    cursor = conn.cursor()
+                
+                # SQL执行超时
+                with timeout_context(self.sql_execution_timeout):
+                    cursor.execute(translated_sql, params)
 
             # --- 对于PostgreSQL和ClickHouse，可以先翻译再执行 ---
             else:
@@ -159,13 +237,30 @@ class ExecutionEngine:
                 if db_type == 'postgresql':
                     db_config = self.config['database_connections']['postgresql'].copy()
                     db_config['dbname'] = db_identifier
-                    conn = psycopg2.connect(**db_config)
-                    cursor = conn.cursor()
+                    # 添加连接超时参数
+                    db_config['connect_timeout'] = self.db_connection_timeout
+                    
+                    with timeout_context(self.db_connection_timeout):
+                        conn = psycopg2.connect(**db_config)
+                        cursor = conn.cursor()
+                    
+                    # SQL执行超时
+                    with timeout_context(self.sql_execution_timeout):
+                        cursor.execute(translated_sql)
+                        
                 elif db_type == 'clickhouse':
                     db_config = self.config['database_connections']['clickhouse'].copy()
                     db_config['database'] = db_identifier
-                    client = clickhouse_connect.get_client(**db_config)
-                    result = client.query(translated_sql)
+                    # 添加连接超时参数
+                    db_config['connect_timeout'] = self.db_connection_timeout
+                    
+                    with timeout_context(self.db_connection_timeout):
+                        client = clickhouse_connect.get_client(**db_config)
+                    
+                    # SQL执行超时
+                    with timeout_context(self.sql_execution_timeout):
+                        result = client.query(translated_sql)
+                    
                     return {
                         "status": "success",
                         "columns": result.column_names,
@@ -174,8 +269,6 @@ class ExecutionEngine:
                     }
                 else:
                     raise ValueError(f"不支持的数据库类型: {db_type}")
-                
-                cursor.execute(translated_sql)
 
             # --- 获取并格式化结果 ---
             if cursor.description:
@@ -187,7 +280,8 @@ class ExecutionEngine:
                 data = []
                 row_count = cursor.rowcount
             
-            if conn and db_type != 'sqlite': conn.commit()
+            if conn and db_type != 'sqlite': 
+                conn.commit()
             
             return {
                 "status": "success",
@@ -196,11 +290,14 @@ class ExecutionEngine:
                 "row_count": row_count
             }
         
+        except TimeoutError as e:
+            logger.error(f"数据库操作超时: {e}")
+            if conn: conn.rollback()
+            return {"status": "error", "message": f"操作超时: {e}"}
         except Exception as e:
             logger.error(f"在数据库 '{db_identifier}' ({db_type}) 上执行查询失败: {e}")
             if conn: conn.rollback()
             return {"status": "error", "message": str(e)}
-        
         finally:
             if conn:
                 conn.close()
@@ -213,10 +310,27 @@ def main():
     parser.add_argument("--db-identifier", required=True, type=str, help="数据库标识符 (数据库名或SQLite文件路径)。")
     parser.add_argument("--config", default="engine_config.yaml", type=str, help="引擎配置文件的路径。")
     
+    # 超时参数
+    parser.add_argument("--embedding-timeout", type=int, help="Embedding服务调用超时时间（秒），覆盖配置文件设置。")
+    parser.add_argument("--db-connection-timeout", type=int, help="数据库连接超时时间（秒），覆盖配置文件设置。")
+    parser.add_argument("--sql-execution-timeout", type=int, help="SQL执行超时时间（秒），覆盖配置文件设置。")
+    parser.add_argument("--total-timeout", type=int, help="总执行超时时间（秒），覆盖配置文件设置。")
+    
     args = parser.parse_args()
     
     try:
         engine = ExecutionEngine(config_path=args.config)
+        
+        # 如果命令行提供了超时参数，覆盖配置文件设置
+        if args.embedding_timeout is not None:
+            engine.embedding_timeout = args.embedding_timeout
+        if args.db_connection_timeout is not None:
+            engine.db_connection_timeout = args.db_connection_timeout
+        if args.sql_execution_timeout is not None:
+            engine.sql_execution_timeout = args.sql_execution_timeout
+        if args.total_timeout is not None:
+            engine.total_timeout = args.total_timeout
+        
         result = engine.execute(sql=args.sql, db_type=args.db_type, db_identifier=args.db_identifier)
         
         sys.stdout.write(json.dumps(result, indent=2, ensure_ascii=False))

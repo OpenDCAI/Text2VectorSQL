@@ -31,7 +31,7 @@ logging/
 *.sql
 *.sqlite
 
-*.yaml
+# *.yaml
 
 __pycache__
 .vscode
