@@ -34,5 +34,5 @@ timeouts:
 
 # 日志配置
 logging:
-  level: "INFO"
+  level: "WARNING"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

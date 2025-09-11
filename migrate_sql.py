@@ -2,6 +2,10 @@ import re
 import uuid
 from textwrap import dedent
 import logging
+import json
+
+# 假设 execution_engine.py 在同一个目录下
+from execution_engine.execution_engine import ExecutionEngine, TimeoutError
 
 # 配置日志记录
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
@@ -207,10 +211,6 @@ class SQLiteToClickHouseConverter:
             return m.group(0)
         modified_block = from_join_pattern.sub(replace_from_join, modified_block)
 
-        # 【核心修改 V11】移除对 distance 列的重命名，因为 CTE 中将统一使用 'distance'
-        # for alias in local_searches:
-        #     modified_block = re.sub(r'\b' + re.escape(alias) + r'\.distance\b', f'{alias}.distance_{alias}', modified_block, flags=re.I)
-            
         return modified_block.strip(), local_searches, pushed_filters, aliases_in_scope
 
     def convert(self) -> str:
@@ -326,7 +326,6 @@ class SQLiteToClickHouseConverter:
                         filters = [re.sub(r'\b' + alias + r'\.', '', f, flags=re.I) for f in pushed_filters]
                         where_for_cte = f"WHERE {' AND '.join(filters)}"
                     
-                    # 【核心修改 V11】将 distance_{alias} 简化为 distance
                     cte = dedent(f"""\
                         {alias}_filtered AS (
                             SELECT
@@ -370,7 +369,6 @@ SQL_KEYWORDS_FUNCTIONS = {
     'TIMESTAMP', 'TO', 'TRANSLATE', 'TRIGGER', 'TRIM', 'TRUE', 'TRUNC', 'TRUNCATE',
     'UNION', 'UNIQUE', 'UPDATE', 'UPPER', 'USER', 'USING', 'VALUES', 'VARCHAR',
     'VIEW', 'WHEN', 'WHERE', 'WITH',
-    # 自定义的或非标准的也加入，如 lembed
     'LEMBED'
 }
 
@@ -708,7 +706,6 @@ class SQLiteToPostgreSQLConverter:
             elif re.search(bare_distance_pattern, select_clause_part, flags=re.I):
                 select_clause_part = re.sub(bare_distance_pattern, f"{distance_calc} AS distance", select_clause_part, flags=re.I, count=1)
             else:
-                # 【V3 修改】将 distance 注入改为追加到末尾
                 select_clause_part = select_clause_part.strip().rstrip(',') + f", {distance_calc} AS distance"
 
             clean_block = select_clause_part + rest_of_block
@@ -773,18 +770,88 @@ class SQLiteToPostgreSQLConverter:
         return self._quote_all_identifiers(final_sql)
 
 if __name__ == '__main__':
-    import json
-    path = '/mnt/b_public/data/wangzr/Text2VectorSQL/synthesis/toy_spider/results/question_and_sql_pairs.json'
-    with open(path, 'r') as f:
-        data = json.load(f)
-        for item in data:
-            print(item['question'])
-            sql = item['sql']
-            print('='*40)
-            print(sql)
-            converter = SQLiteToPostgreSQLConverter(sql)
-            # converter = SQLiteToClickHouseConverter(sql)
-            print('-'*20)
-            ch_sql = converter.convert()
-            print(ch_sql)
-            print('='*40)
+    # --- 新增功能：集成执行引擎 ---
+    
+    # --- 配置区 ---
+    # 请根据您的环境修改这些配置
+    INPUT_FILE_PATH = '/mnt/b_public/data/wangzr/Text2VectorSQL/synthesis/toy_spider/results/question_and_sql_pairs.json'
+    TARGET_DB_TYPE = 'postgresql'  # 或 'clickhouse'
+    ENGINE_CONFIG_PATH = 'execution_engine/engine_config.yaml' # 执行引擎的配置文件路径
+    # --- 配置区结束 ---
+
+    try:
+        engine = ExecutionEngine(config_path=ENGINE_CONFIG_PATH)
+    except Exception as e:
+        logging.error(f"无法初始化 ExecutionEngine: {e}")
+        logging.error("请确保 'engine_config.yaml' 配置文件存在且格式正确。")
+        exit(1)
+
+    try:
+        with open(INPUT_FILE_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        logging.error(f"输入文件未找到: {INPUT_FILE_PATH}")
+        exit(1)
+    except json.JSONDecodeError:
+        logging.error(f"无法解析JSON文件: {INPUT_FILE_PATH}")
+        exit(1)
+
+    for i, item in enumerate(data):
+        original_sql = item.get('sql')
+        db_id = item.get('db_id')
+        
+        if not original_sql or not db_id:
+            logging.warning(f"跳过第 {i+1} 条记录，缺少 'sql' 或 'db_id' 字段。")
+            continue
+
+        # print(f"\n{'='*40}")
+        # print(f"处理第 {i+1}/{len(data)} 条记录 | 数据库: {db_id}")
+        # print(f"原始 SQLite SQL:\n{original_sql}")
+        # print(f"{'-'*20}")
+        
+        try:
+            # 1. 选择转换器并转换SQL
+            if TARGET_DB_TYPE == 'postgresql':
+                converter = SQLiteToPostgreSQLConverter(original_sql)
+            elif TARGET_DB_TYPE == 'clickhouse':
+                converter = SQLiteToClickHouseConverter(original_sql)
+            else:
+                logging.error(f"不支持的目标数据库类型: {TARGET_DB_TYPE}")
+                continue
+                
+            converted_sql = converter.convert()
+            # print(f"转换后的 {TARGET_DB_TYPE.capitalize()} SQL:\n{converted_sql}")
+            # print(f"{'-'*20}")
+            
+            # 2. 执行转换后的SQL
+            logging.info(f"正在目标数据库 '{db_id}' ({TARGET_DB_TYPE}) 上执行...")
+            result = engine.execute(
+                sql=converted_sql, 
+                db_type=TARGET_DB_TYPE, 
+                db_identifier=db_id
+            )
+            
+            # 3. 处理执行结果
+            if result.get('status') == 'success':
+                logging.info(f"执行成功！返回 {result.get('row_count', 'N/A')} 行。")
+                # print("执行结果:")
+                # print(json.dumps(result, indent=2, ensure_ascii=False))
+            else:
+                # 捕获由引擎处理的错误（例如，SQL语法错误）
+                print(db_id)
+                print(f"原始 SQLite SQL:\n{original_sql}")
+                print(f"转换后的 {TARGET_DB_TYPE.capitalize()} SQL:\n{converted_sql}")
+                print(f"{'-'*20}")
+                logging.warning(f"执行失败: {result.get('message', '未知错误')}")
+                logging.warning("跳过此SQL。")
+
+        except (TimeoutError, ValueError) as e:
+            # 捕获转换或执行过程中的超时和值错误
+            logging.error(f"处理过程中发生错误: {e}")
+            logging.error("跳过此SQL。")
+        except Exception as e:
+            # 捕获其他意外错误
+            logging.error(f"发生意外错误: {e}", exc_info=True)
+            logging.error("跳过此SQL。")
+            
+        print(f"{'='*40}")
