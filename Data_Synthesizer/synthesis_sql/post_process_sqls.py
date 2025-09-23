@@ -186,6 +186,165 @@ def dedup_by_template(sql_infos: List[Dict]) -> List[Dict]:
             seen.add(k); uniq.append(info)
     return uniq
 
+def analyze_col_cnt(sql, db_path):
+    """
+    分析 SQL 查询中的列数，包括别名处理和复杂查询解析
+    
+    Args:
+        sql (str): SQL 查询语句
+        db_path (str): 数据库路径
+        
+    Returns:
+        int: 列数，如果出错返回 -1
+    """
+    try:
+        # 移除注释和多余空白
+        cleaned_sql = re.sub(r'--.*?$', '', sql, flags=re.MULTILINE)
+        cleaned_sql = re.sub(r'/\*.*?\*/', '', cleaned_sql, flags=re.DOTALL)
+        cleaned_sql = ' '.join(cleaned_sql.split())
+        
+        # 连接数据库
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # 使用 EXPLAIN QUERY PLAN 获取查询计划而不执行
+            cursor.execute(f"EXPLAIN QUERY PLAN {cleaned_sql}")
+            
+            # 尝试获取列信息 - 使用 LIMIT 0 避免实际执行
+            limited_sql = f"SELECT * FROM ({cleaned_sql}) LIMIT 0"
+            cursor.execute(limited_sql)
+            
+            # 获取列描述
+            columns = cursor.description
+            if columns:
+                col_count = len(columns)
+                logger.debug(f"通过 LIMIT 0 查询检测到 {col_count} 列")
+                return col_count
+            
+        except sqlite3.Error as e:
+            logger.warning(f"数据库查询失败: {e}")
+            # 如果数据库查询失败，使用静态分析
+            return _static_analyze_columns(cleaned_sql)
+            
+        finally:
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"列数分析失败: {e}")
+        return _static_analyze_columns(sql)
+
+def _static_analyze_columns(sql):
+    """
+    静态分析 SQL 中的列数（备用方法）
+    
+    Args:
+        sql (str): SQL 查询语句
+        
+    Returns:
+        int: 估计的列数
+    """
+    try:
+        # 移除子查询中的 SELECT 来避免误计算
+        main_select = _extract_main_select(sql)
+        
+        # 查找 SELECT 和 FROM 之间的内容
+        select_match = re.search(r'SELECT\s+(.*?)\s+FROM', main_select, re.IGNORECASE | re.DOTALL)
+        if not select_match:
+            return -1
+            
+        select_clause = select_match.group(1).strip()
+        
+        # 处理 SELECT * 的情况
+        if select_clause.strip() == '*':
+            # 尝试从 FROM 子句推断表结构（简化处理）
+            logger.debug("检测到 SELECT *，返回估计列数")
+            return 5  # 默认估计值
+            
+        # 分割列，处理括号内的内容
+        columns = _split_columns_smart(select_clause)
+        
+        # 过滤掉空的列
+        columns = [col.strip() for col in columns if col.strip()]
+        
+        logger.debug(f"静态分析检测到 {len(columns)} 列: {columns}")
+        return len(columns)
+        
+    except Exception as e:
+        logger.error(f"静态列数分析失败: {e}")
+        return -1
+
+def _extract_main_select(sql):
+    """
+    提取主 SELECT 语句，排除子查询
+    
+    Args:
+        sql (str): 完整的 SQL 语句
+        
+    Returns:
+        str: 主 SELECT 语句
+    """
+    # 简化处理：找到第一个 SELECT 到第一个分号或字符串结尾
+    sql = sql.strip()
+    if sql.endswith(';'):
+        sql = sql[:-1]
+    
+    # 找到主要的 SELECT 语句结构
+    # 这里可以进一步改进以处理更复杂的嵌套查询
+    return sql
+
+def _split_columns_smart(select_clause):
+    """
+    智能分割 SELECT 子句中的列，处理函数调用和表达式
+    
+    Args:
+        select_clause (str): SELECT 子句内容
+        
+    Returns:
+        list: 分割后的列列表
+    """
+    columns = []
+    current_col = ""
+    paren_depth = 0
+    in_quotes = False
+    quote_char = None
+    
+    i = 0
+    while i < len(select_clause):
+        char = select_clause[i]
+        
+        # 处理引号
+        if char in ('"', "'", '`') and not in_quotes:
+            in_quotes = True
+            quote_char = char
+        elif char == quote_char and in_quotes:
+            in_quotes = False
+            quote_char = None
+            
+        # 如果在引号内，直接添加字符
+        if in_quotes:
+            current_col += char
+        elif char == '(':
+            paren_depth += 1
+            current_col += char
+        elif char == ')':
+            paren_depth -= 1
+            current_col += char
+        elif char == ',' and paren_depth == 0:
+            # 找到列分隔符
+            columns.append(current_col.strip())
+            current_col = ""
+        else:
+            current_col += char
+            
+        i += 1
+    
+    # 添加最后一列
+    if current_col.strip():
+        columns.append(current_col.strip())
+    
+    return columns
+
 def analyze_col_cnt(sql_infos):
     cnt = {}
     for x in sql_infos:
@@ -198,6 +357,185 @@ def load_ndjson(path: str) -> List[Dict]:
         for obj in tqdm(ijson.items(f, 'item'), desc="加载 LLM 输出"):
             data.append(obj)
     return data
+
+def fix_sql_syntax_errors(sql, error_msg):
+    """
+    根据错误信息修复 SQL 语法错误
+    
+    Args:
+        sql (str): 原始 SQL 语句
+        error_msg (str): 错误信息
+        
+    Returns:
+        str: 修复后的 SQL 语句
+    """
+    fixed_sql = sql.strip()
+    
+    try:
+        # 确保 SQL 以分号结尾
+        if not fixed_sql.endswith(';'):
+            fixed_sql += ';'
+            
+        # 修复常见的语法错误
+        error_lower = error_msg.lower()
+        
+        # 处理表名或列名错误
+        if 'no such table' in error_lower:
+            table_match = re.search(r"no such table:\s*(['\"]?)(\w+)\1", error_lower)
+            if table_match:
+                missing_table = table_match.group(2)
+                logger.info(f"检测到缺失表: {missing_table}")
+                # 这里可以添加表名映射逻辑
+                
+        elif 'no such column' in error_lower:
+            col_match = re.search(r"no such column:\s*(['\"]?)(\w+\.?\w*)\1", error_lower)
+            if col_match:
+                missing_col = col_match.group(2)
+                logger.info(f"检测到缺失列: {missing_col}")
+                # 尝试修复列名
+                fixed_sql = _fix_column_names(fixed_sql, missing_col)
+                
+        # 修复 GROUP BY 错误
+        elif 'group by' in error_lower and 'aggregate' in error_lower:
+            fixed_sql = _fix_group_by_issues(fixed_sql)
+            
+        # 修复引号问题
+        elif 'unrecognized token' in error_lower:
+            fixed_sql = _fix_quote_issues(fixed_sql)
+            
+        # 修复 JOIN 语法
+        elif 'join' in error_lower:
+            fixed_sql = _fix_join_syntax(fixed_sql)
+            
+        # 修复括号不匹配
+        elif 'syntax error' in error_lower:
+            fixed_sql = _fix_parentheses(fixed_sql)
+            
+        logger.debug(f"SQL 修复尝试: {sql[:100]}... -> {fixed_sql[:100]}...")
+        return fixed_sql
+        
+    except Exception as e:
+        logger.error(f"SQL 修复过程出错: {e}")
+        return sql
+
+def _fix_column_names(sql, missing_col):
+    """修复列名错误"""
+    try:
+        # 移除表前缀尝试
+        if '.' in missing_col:
+            simple_col = missing_col.split('.')[-1]
+            sql = sql.replace(missing_col, simple_col)
+            
+        # 常见列名映射
+        column_mappings = {
+            'id': ['ID', 'Id', 'identifier', 'key'],
+            'name': ['Name', 'title', 'label'],
+            'date': ['Date', 'created_at', 'timestamp'],
+            'count': ['Count', 'total', 'number']
+        }
+        
+        for standard, variants in column_mappings.items():
+            if missing_col.lower() == standard:
+                # 尝试替换为可能的变体
+                for variant in variants:
+                    if variant in sql:
+                        sql = sql.replace(missing_col, variant)
+                        break
+                        
+        return sql
+    except:
+        return sql
+
+def _fix_group_by_issues(sql):
+    """修复 GROUP BY 相关问题"""
+    try:
+        # 查找 SELECT 子句中的聚合函数
+        select_match = re.search(r'SELECT\s+(.*?)\s+FROM', sql, re.IGNORECASE | re.DOTALL)
+        if not select_match:
+            return sql
+            
+        select_clause = select_match.group(1)
+        
+        # 查找非聚合列
+        non_agg_cols = []
+        agg_functions = ['COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'GROUP_CONCAT']
+        
+        columns = _split_columns_smart(select_clause)
+        for col in columns:
+            col_upper = col.upper()
+            is_aggregate = any(func in col_upper for func in agg_functions)
+            if not is_aggregate and not col.strip() == '*':
+                # 提取列名（去除别名）
+                col_name = col.split(' AS ')[0].strip()
+                col_name = re.sub(r'\s+(AS\s+)?\w+$', '', col_name, flags=re.IGNORECASE).strip()
+                if col_name:
+                    non_agg_cols.append(col_name)
+        
+        # 如果有非聚合列但没有 GROUP BY，添加 GROUP BY
+        if non_agg_cols and 'GROUP BY' not in sql.upper():
+            group_by_clause = f" GROUP BY {', '.join(non_agg_cols)}"
+            # 在 ORDER BY 之前或 LIMIT 之前或语句结尾添加
+            if 'ORDER BY' in sql.upper():
+                sql = re.sub(r'\s+ORDER\s+BY', group_by_clause + ' ORDER BY', sql, flags=re.IGNORECASE)
+            elif 'LIMIT' in sql.upper():
+                sql = re.sub(r'\s+LIMIT', group_by_clause + ' LIMIT', sql, flags=re.IGNORECASE)
+            else:
+                sql = sql.rstrip(';') + group_by_clause + ';'
+                
+        return sql
+    except:
+        return sql
+
+def _fix_quote_issues(sql):
+    """修复引号问题"""
+    try:
+        # 修复单引号和双引号混用
+        # 将所有字符串字面量统一使用单引号
+        sql = re.sub(r'"([^"]*)"', r"'\1'", sql)
+        
+        # 修复反引号（用于标识符）
+        sql = re.sub(r'`([^`]*)`', r'\1', sql)
+        
+        return sql
+    except:
+        return sql
+
+def _fix_join_syntax(sql):
+    """修复 JOIN 语法问题"""
+    try:
+        # 确保 JOIN 前有适当的关键字
+        sql = re.sub(r'\bJOIN\b', ' JOIN ', sql, flags=re.IGNORECASE)
+        sql = re.sub(r'\s+JOIN\s+', ' JOIN ', sql, flags=re.IGNORECASE)
+        
+        # 修复 ON 子句
+        sql = re.sub(r'\bON\b', ' ON ', sql, flags=re.IGNORECASE)
+        sql = re.sub(r'\s+ON\s+', ' ON ', sql, flags=re.IGNORECASE)
+        
+        return sql
+    except:
+        return sql
+
+def _fix_parentheses(sql):
+    """修复括号不匹配问题"""
+    try:
+        # 统计括号
+        open_count = sql.count('(')
+        close_count = sql.count(')')
+        
+        if open_count > close_count:
+            # 缺少右括号
+            sql = sql.rstrip(';') + ')' * (open_count - close_count) + ';'
+        elif close_count > open_count:
+            # 多余的右括号，移除末尾的
+            diff = close_count - open_count
+            for _ in range(diff):
+                last_paren = sql.rfind(')')
+                if last_paren != -1:
+                    sql = sql[:last_paren] + sql[last_paren+1:]
+                    
+        return sql
+    except:
+        return sql
 
 # ----------------------------------------------------------
 # 7. 主流程

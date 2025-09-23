@@ -1,0 +1,68 @@
+# ==================================================
+#         Text2VectorSQL Evaluation Framework
+# ==================================================
+
+# --- SQL Execution Configuration ---
+# Path to the configuration for the ExecutionEngine
+engine_config_path: ../Execution_Engine/engine_config.yaml
+
+# The database backend type for this evaluation run.
+# Supported types: 'sqlite', 'postgresql', 'clickhouse'
+db_type: 'sqlite'
+
+# Input file containing the evaluation queries.
+# Each object should have "query_id", "db_name", and "sql".
+eval_queries_file: eval_queries.json
+
+# Input file containing the ground truth queries.
+# This should be a dictionary where keys are "query_id" and values are objects
+# containing "db_name" and a list of "sqls".
+ground_truth_file: ground_truth.json
+
+# Output file to save the SQL execution results (intermediate file)
+execution_results_file: sql_execution_results.json
+
+
+# --- Embedding Service Configuration ---
+# Embedding service will be automatically started by default
+embedding_service:
+  # Whether to automatically manage the embedding service lifecycle
+  auto_manage: true
+  
+  # Server configuration
+  host: "127.0.0.1"
+  port: 8000
+  
+  # Model configuration
+  models:
+    - name: "all-MiniLM-L6-v2"
+      hf_model_path: "sentence-transformers/all-MiniLM-L6-v2"
+      trust_remote_code: true
+      tensor_parallel_size: 1
+      max_model_len: 256
+    
+    # Additional models can be configured here
+    # - name: "gte-large"
+    #   hf_model_path: "thenlper/gte-large"
+    #   trust_remote_code: true
+    #   tensor_parallel_size: 1
+    #   max_model_len: 512
+
+
+# --- Evaluation & Metrics Configuration ---
+# Select the metrics you want to calculate.
+metrics:
+  # --- Set-based Metrics (order doesn't matter) ---
+  - name: 'exact_match'    # 0/1 score for perfect set match
+  - name: 'f1_score'       # The harmonic mean of precision and recall
+  - name: 'precision'
+  - name: 'recall'
+
+  # --- Rank-aware Metrics (order matters) ---
+  - name: 'map'            # Mean Average Precision
+  - name: 'mrr'            # Mean Reciprocal Rank
+  - name: 'ndcg'           # Normalized Discounted Cumulative Gain
+    k: 10                  # The '@k' value for NDCG (e.g., ndcg@10)
+
+# The final evaluation report will be saved to this file.
+evaluation_report_file: evaluation_report.json
