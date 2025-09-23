@@ -46,41 +46,60 @@ from vectorization.image_embedding_adder import build_final_db_with_images
 # You need to install the PyYAML library if you don't have it.
 # pip install PyYAML
 # --------------------------------------------------------------------
-
+from typing import Any
 
 class DynamicConfig:
-    """
-    一个通用的动态配置加载器。
-    遍历传入的字典，并将其所有键值对设置为类的属性。
-    """
     def __init__(self, config_dict: dict):
         if config_dict:
             for key, value in config_dict.items():
-                setattr(self, key, value)
+                # 如果值是字典，也将其转换为DynamicConfig实例，以支持链式调用
+                if isinstance(value, dict):
+                    setattr(self, key, DynamicConfig(value))
+                else:
+                    setattr(self, key, value)
+    
+    # 增加一个get方法以安全地获取属性，类似字典
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
 
 class ServicesConfig(DynamicConfig):
-    """封装服务相关的配置 (自动加载)"""
     pass
 
 class PathsConfig(DynamicConfig):
-    """封装所有路径相关的配置 (自动加载)"""
     pass
 
 class ParametersConfig(DynamicConfig):
-    """封装所有参数相关的配置 (自动加载)"""
     pass
 
 class AppConfig:
-    """主配置类，整合所有配置部分"""
     def __init__(self, base_dir: str, services_dict: dict, paths_dict: dict, params_dict: dict):
         self.base_dir = base_dir
         self.services = ServicesConfig(services_dict)
         self.paths = PathsConfig(paths_dict)
         self.parameters = ParametersConfig(params_dict)
 
+# -------------------------------------------------------------------
+#  在这里添加辅助函数并修改 load_config
+# -------------------------------------------------------------------
+def _format_config_paths(config_node: Any, dataset_name: str) -> Any:
+    """
+    【新增的辅助函数】
+    递归地遍历配置节点（字典或列表），格式化所有字符串。
+    """
+    if isinstance(config_node, dict):
+        return {key: _format_config_paths(value, dataset_name) for key, value in config_node.items()}
+    elif isinstance(config_node, list):
+        return [_format_config_paths(item, dataset_name) for item in config_node]
+    elif isinstance(config_node, str):
+        # 核心逻辑：用实际的数据集名称替换占位符 {dataset}
+        return config_node.format(dataset=dataset_name)
+    else:
+        return config_node
+
 def load_config(database: str, dataset: str, config_path: str = 'config.yaml') -> AppConfig:
     """
-    从 YAML 文件中加载、解析并封装配置。
+    【修改后的函数】
+    从 YAML 文件中加载、解析、格式化并封装配置。
     """
     config_file = Path(config_path)
     if not config_file.is_file():
@@ -96,51 +115,77 @@ def load_config(database: str, dataset: str, config_path: str = 'config.yaml') -
         raise KeyError(f"在 '{config_path}' 中找不到配置路径: {database}.{dataset} - {e}")
         
     base_dir = db_config.get('base_dir')
+    # 1. 先像原来一样获取原始的字典
     services_dict = dataset_config.get('services', {})
     paths_dict = dataset_config.get('paths', {})
     params_dict = dataset_config.get('parameters', {})
     
-    return AppConfig(base_dir, services_dict, paths_dict, params_dict)
+    # 2. 【关键新增步骤】调用辅助函数，用 `dataset` 变量格式化路径字典
+    formatted_paths_dict = _format_config_paths(paths_dict, dataset)
+    
+    # 3. 将格式化后的字典传入 AppConfig
+    return AppConfig(base_dir, services_dict, formatted_paths_dict, params_dict)
 
 def create_directory_with_os(directory_name: str):
-    """使用 os 模块创建目录。"""
+    """
+    使用 os 模块创建目录。
+    如果路径已作为文件存在，则发出警告；如果目录已存在，则静默处理。
+    """
+    # 检查目标路径是否已经存在，并且是一个文件
+    if os.path.exists(directory_name) and not os.path.isdir(directory_name):
+        # 如果是文件，打印警告并直接返回，不做任何事
+        print(f"warning: 路径 '{directory_name}' 已作为文件存在, 无法创建同名目录。")
+        return
+
+    # 尝试创建目录，exist_ok=True 会处理目录已存在的情况
     try:
         os.makedirs(directory_name, exist_ok=True)
-        abs_path = os.path.abspath(directory_name)
-        print(f"目录 '{abs_path}' 创建成功或已存在。")
     except OSError as e:
-        print(f"创建目录时出错: {e}")
+        # 捕获其他可能的OS错误
+        print(f"创建目录 '{directory_name}' 时发生未知错误: {e}")
 
 def main():
-    # 加载配置
     try:
-        # 1. 调用函数加载 'sqlite' 的 'toy_spider' 配置
-        config = load_config(database="sqlite", dataset="wiki")
-
-        # 2. 演示如何通过点符号访问所有变量
-        print("--- 配置加载成功! ---")
-        print(f"\n基础目录 (Base Directory): {config.base_dir}")
-        create_directory_with_os(config.base_dir)
-
-        print("\n--- 服务配置 (Services) ---")
-        print(f"  OpenAI API Key: ...{config.services.openai.get('api_key')[:6]}")
-        print(f"  OpenAI base_url: ...{config.services.openai.get('base_url')}")
-        print(f"  OpenAI llm_model_name: ...{config.services.openai.get('llm_model_name')}")
-        print(f"  embedding_model_name: ...{config.services.openai.get('embedding_model_name')}")
+        # 只需要修改这里，就可以加载不同的数据集配置！
+        DATASET_TO_LOAD = "toy_spider" 
+        # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
         
+        config = load_config(database="sqlite", dataset=DATASET_TO_LOAD)
 
-        print("\n--- 路径配置 (Paths) ---")
+        print(f"--- 成功加载 '{DATASET_TO_LOAD}' 数据集的配置! ---")
+        
+        # 访问路径时，它们已经是被正确替换后的最终路径了
+        print("\n--- 动态生成的路径 ---")
         print(f"  源数据库根目录: {config.paths.source_db_root}")
-        print(f"  模型下载路径: {config.paths.model_download}")
+        print(f"  结果存放路径:   {config.paths.result_path}")
+        print(f"  缓存文件路径:   {config.paths.cache_file}")
 
-        print("\n--- 参数配置 (Parameters) ---")
-        print(f"  最大工作线程数: {config.parameters.max_workers}")
-        print(f"  SQL 执行超时: {config.parameters.sql_exec_timeout}s")
+        # --- 【关键修改】更准确、更稳健的目录创建逻辑 ---
+        print("\n正在创建所有必需的目录...")
         
-        # 也可以使用 pprint 打印某个配置部分的完整内容
-        # print("\n--- 完整的路径配置字典 ---")
-        # vars() 可以将对象的属性转为字典以便打印
-        # pprint(vars(config.paths))
+        for path_name, path_value in vars(config.paths).items():
+            if not isinstance(path_value, str) or not path_value:
+                continue # 如果值不是字符串或为空，则跳过
+
+            # 使用 os.path.splitext() 来判断一个路径是否指向文件
+            # 如果路径有扩展名（如 .json, .txt），我们认为它是一个文件路径。
+            _, file_extension = os.path.splitext(path_value)
+            
+            if file_extension:
+                # 如果有文件扩展名, 说明这是一个文件路径。
+                # 我们需要创建的是它的【父目录】。
+                directory_to_create = os.path.dirname(path_value)
+            else:
+                # 如果没有文件扩展名, 我们假定它本身就是一个【目录路径】。
+                directory_to_create = path_value
+            
+            # 只有当 `directory_to_create` 非空时才创建
+            if directory_to_create:
+                create_directory_with_os(directory_to_create)
+
+        print("所有相关目录已创建完毕。")
+
+
     except (FileNotFoundError, KeyError, yaml.YAMLError) as e:
         print(f"错误: 配置加载失败 - {e}")
 
