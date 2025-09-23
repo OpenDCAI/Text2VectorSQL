@@ -71,11 +71,16 @@ highly_complex_vec_criterion = '''**Criteria:** Multi-stage or recursive vector 
 
 # =========================== DB 辅助函数 =========================== #
 def _open_connection(db_file: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_file)
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn)
-    sqlite_lembed.load(conn)
-    return conn
+    try:
+        conn = sqlite3.connect(db_file)
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        sqlite_lembed.load(conn)
+        return conn
+    except Exception as e:
+        print(f"db_file:{db_file}")
+        print(e)
+        traceback.print_exc()
 
 
 def contains_virtual_table(statements):
@@ -133,6 +138,33 @@ def compute_embedding_column(db_file: str) -> Dict[str, Any]:
     cur.close(); conn.close()
     return summary
 
+# -------- 1) 统计 *image_embedding 列 -------- #
+def compute_image_column(db_file: str) -> Dict[str, Any]:
+    conn = _open_connection(db_file)
+    cur  = conn.cursor()
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    tbls = [r[0] for r in cur.fetchall()]
+
+    summary = {"total_num": 0, "tables": {}}
+
+    for tbl in tbls:
+        try:
+            cur.execute(f'PRAGMA table_info("{tbl}")')
+            cols = [r[1] for r in cur.fetchall()]     # column name
+            bases = []
+            for col in cols:
+                if col.endswith("_embedding"):
+                    base = col[:-10]
+                    if 'image' in base.lower():
+                        bases.append(base)
+            if bases:
+                summary["tables"][tbl] = bases
+                summary["total_num"] += len(bases)
+        except Exception:
+            traceback.print_exc()
+
+    cur.close(); conn.close()
+    return summary
 
 # -------- 2) 抽样列值 -------- #
 def obtain_insert_statements(db_file: str,
@@ -152,6 +184,7 @@ def obtain_insert_statements(db_file: str,
                 cur.execute(f'SELECT "{col}" FROM "{tbl}" LIMIT ?', (row_num,))
                 tbl_dict[col] = [r[0] for r in cur.fetchall()]
             except Exception:
+                print(f"error in col:{col}, table:{tbl}")
                 traceback.print_exc()
         if tbl_dict:
             result[tbl] = tbl_dict
@@ -175,21 +208,16 @@ def write_large_json(data: List[Dict], output_path: str, chunk_size: int = 500):
                 json.dump(item, f, ensure_ascii=False, indent=2)
         f.write(']')
 
-
-# =========================== 主流程 =========================== #
-if __name__ == "__main__":
+def main_generate_sql_synthesis_prompts(db_path="./results/vector_databases_toy",prompt_tpl_path="./prompt_templates/sql_synthesis_prompt.txt",functions_path="./prompt_templates/sqlite_funcs.json",output_dir="./prompts",output_name="sql_synthesis_prompts.json",embedding_model="all-MiniLM-L6-v2"):
     random.seed(42)
 
     # 目录配置 --------------------------------------------------
-    db_path       = "../bird_vectorization/results/vector_databases_bird"
-    prompt_tpl    = open("./prompt_templates/sql_synthesis_prompt.txt",
-                         encoding='utf-8').read()
-    functions     = json.load(open("./prompt_templates/sqlite_funcs.json",
-                                   encoding='utf-8'))
+    prompt_tpl    = open(prompt_tpl_path,encoding='utf-8').read()
+    functions     = json.load(open(functions_path,encoding='utf-8'))
 
     # 输出目录 --------------------------------------------------
-    prompts_dir   = "./prompts"
-    output_path   = os.path.join(prompts_dir, "sql_synthesis_prompts.json")
+    prompts_dir   = output_dir
+    output_path   = os.path.join(prompts_dir, output_name)
     os.makedirs(prompts_dir, exist_ok=True)
 
     # ----------------------------------------------------------
@@ -197,8 +225,14 @@ if __name__ == "__main__":
     db_names = os.listdir(db_path)
 
     for db_name in tqdm(db_names):
+        if not os.path.isdir(db_name) and db_name.endswith('.json'):
+            continue
         try:
             db_file = os.path.join(db_path, db_name, f"{db_name}.sqlite")
+            db_file_final = os.path.join(db_path, db_name, f"{db_name}_final.sqlite")
+
+            if os.path.exists(db_file_final):
+                db_file = db_file_final
 
             table_names, create_sqls = obtain_db_schema(db_file)
 
@@ -222,8 +256,11 @@ if __name__ == "__main__":
             summary = compute_embedding_column(db_file)
             # 抽样列值
             tbl2values = obtain_insert_statements(db_file, summary, row_num=2)
+            
+            # support image_embedding
+            image_summary = compute_image_column(db_file)
 
-            total_rich_cols = summary.get("total_num", 0)
+            total_rich_cols = summary.get("total_num", 0) + image_summary.get("total_num", 0)
             # 你可以调整这里的数值，对每一个语义丰富的列生成6条对应的不同sql语句
             loop_times = max(0, 6 * total_rich_cols)
 
@@ -272,7 +309,7 @@ if __name__ == "__main__":
                     db_engine="SQLite",
                     column_count=int(column_count),
                     db_extension="SQLite-vec and sqlite-lembed",
-                    embedding_model="all-MILM-L6-v2"
+                    embedding_model=embedding_model
                 )
 
                 prompts.append({"prompt": prompt, "db_id": db_name})
@@ -284,3 +321,8 @@ if __name__ == "__main__":
     # ---------------------- 写文件 ---------------------- #
     write_large_json(prompts, output_path, chunk_size=500)
     print(f"✅ 生成完成，共 {len(prompts)} 条，写入 {output_path}")
+
+# =========================== 主流程 =========================== #
+if __name__ == "__main__":
+    main_generate_sql_synthesis_prompts()
+    

@@ -1,15 +1,18 @@
 import argparse
 import json
 import re
+import os
+from dotenv import load_dotenv
 from tqdm import tqdm
 from openai import OpenAI
-import hashlib
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
-import os
 from pathlib import Path
 
-# 缓存装饰器，最多缓存1000个结果
+# Load environment variables from a .env file
+load_dotenv()
+
+# 缓存装饰器，最多缓存10000个结果
 @lru_cache(maxsize=10000)
 def cached_llm_call(model: str, prompt: str, api_url: str, api_key: str) -> str:
     """
@@ -86,36 +89,85 @@ def llm_inference(model: str, prompts: list, db_ids: list, api_url: str, api_key
     
     return results
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, required=True, help="OpenAI model name")
-    parser.add_argument("--api_url", type=str, default="", help="OpenAI API URL")
-    parser.add_argument("--api_key", type=str, required=True, help="OpenAI API key")
-    parser.add_argument("--no_parallel", action="store_true", help="Disable parallel execution")
-    parser.add_argument("--input_file", type=str, default="./prompts/sql_synthesis_prompts.json", 
-                        help="Input JSON file with prompts")
-    parser.add_argument("--output_file", type=str, default="./results/sql_synthesis.json", 
-                        help="Output JSON file for results")
-    
-    opt = parser.parse_args()
-    print(opt)
+def run_sql_synthesis(
+    input_file: str,
+    output_file: str,
+    model_name: str,
+    api_key: str,
+    api_url: str,
+    parallel: bool
+):
+    """
+    Runs the main logic for SQL synthesis from a dataset.
+
+    Args:
+        input_file (str): Path to the input JSON file with prompts.
+        output_file (str): Path to the output JSON file for results.
+        model_name (str): Name of the LLM model to use.
+        api_key (str): API key for the LLM service.
+        api_url (str): Base URL for the LLM API.
+        parallel (bool): Flag to enable or disable parallel execution.
+    """
+    # Add a check to ensure required variables are set
+    if not api_key or not model_name:
+        raise ValueError("Error: api_key and model_name must be provided.")
+
+    print("--- Running Synthesis with Configuration ---")
+    print(f"Model: {model_name}")
+    print(f"API URL: {api_url}")
+    print(f"Parallel Execution Enabled: {parallel}")
+    print(f"Input File: {input_file}")
+    print(f"Output File: {output_file}")
+    print("------------------------------------------")
     
     # 确保输出目录存在
-    Path(opt.output_file).parent.mkdir(parents=True, exist_ok=True)
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     
-    input_dataset = json.load(open(opt.input_file, encoding="utf-8"))
+    input_dataset = json.load(open(input_file, encoding="utf-8"))
     
     db_ids = [data["db_id"] for data in input_dataset]
     prompts = [data["prompt"] for data in input_dataset]
     
     results = llm_inference(
-        model=opt.model,
+        model=model_name,
         prompts=prompts,
         db_ids=db_ids,
-        api_url=opt.api_url,
-        api_key=opt.api_key,
-        parallel=not opt.no_parallel
+        api_url=api_url,
+        api_key=api_key,
+        parallel=parallel
     )
 
-    with open(opt.output_file, "w", encoding="utf-8") as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
+    
+    print(f"\nSynthesis complete. Results saved to {output_file}")
+
+
+if __name__ == '__main__':
+    # This block now handles command-line parsing and environment variable loading,
+    # then calls the main logic function with the collected configuration.
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input_file", type=str, default="./prompts/sql_synthesis_prompts.json", 
+                        help="Input JSON file with prompts")
+    parser.add_argument("--output_file", type=str, default="./results/sql_synthesis.json", 
+                        help="Output JSON file for results")
+    opt = parser.parse_args()
+
+    # Load configuration from environment variables
+    api_key_env = os.getenv("API_KEY")
+    api_url_env = os.getenv("BASE_URL")
+    model_name_env = os.getenv("LLM_MODEL_NAME")
+    
+    # Handle the boolean value for NO_PARALLEL from environment variables
+    no_parallel_str = os.getenv("NO_PARALLEL", "false").lower()
+    parallel_execution = not (no_parallel_str == 'true')
+
+    # Call the main function with the loaded and parsed configuration
+    run_sql_synthesis(
+        input_file=opt.input_file,
+        output_file=opt.output_file,
+        model_name=model_name_env,
+        api_key=api_key_env,
+        api_url=api_url_env,
+        parallel=parallel_execution
+    )

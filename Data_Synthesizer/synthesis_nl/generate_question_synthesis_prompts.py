@@ -256,21 +256,22 @@ def enhance_vector_info(sql, column_info):
                 column_info[col] = f"Vector column for similarity search: {column_info.get(col, '')}"
     return column_info
 
-if __name__ == "__main__":
+def sqlite_generate_question_synthesis_prompts(db_path="sqlite/results/toy_spider/vector_databases_toy",sql_infos_path="sqlite/results/toy_spider/synthetic_sqls.json",question_synthesis_template_path="sqlite/prompt_templates/question_synthesis_prompt.txt",output_json_path="sqlite/prompts/toy_spider/question_synthesis_prompts.json"):
     random.seed(42)
-    db_path = "../bird_vectorization/results/vector_databases_bird"
-    sql_infos = json.load(open("../sql_synthesis/results/synthetic_sqls.json"))
-    question_synthesis_template = open("./prompt_templates/question_synthesis_prompt.txt").read()
+    sql_infos = json.load(open(sql_infos_path))
+    question_synthesis_template = open(question_synthesis_template_path).read()
     styles = list(style2desc.keys())
-
-    os.makedirs("./prompts", exist_ok=True)
 
     db_ids = list(set([sql["db_id"] for sql in sql_infos]))
     db_id2column_info = dict()
     db_id_vec_flag = dict()
     
     for db_id in tqdm(db_ids, desc="Processing databases"):
-        table_names, create_statements = obtain_db_schema(os.path.join(db_path, db_id, db_id + ".sqlite"))
+        db_path = os.path.join(db_path, db_id, db_id + ".sqlite")
+        db_path_final = os.path.join(db_path, db_id, db_id + "_final.sqlite")
+        if os.path.exists(db_path_final):
+            db_path = db_path_final
+        table_names, create_statements = obtain_db_schema(db_path)
         db_id_vec_flag[db_id] = contains_virtual_table(create_statements)
         db_id2column_info[db_id] = extract_column_descriptions(create_statements)
     
@@ -319,5 +320,8 @@ if __name__ == "__main__":
         sql_info["prompt"] = prompt
         sql_info["contains_vector"] = is_vector_query
     
-    with open("./prompts/question_synthesis_prompts.json", "w", encoding="utf-8") as f:
+    with open(output_json_path, "w", encoding="utf-8") as f:
         json.dump(sql_infos, f, indent=2, ensure_ascii=False)
+
+if __name__ == "__main__":
+    sqlite_generate_question_synthesis_prompts()

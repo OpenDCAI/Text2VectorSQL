@@ -18,6 +18,9 @@ train/
 results/
 !question_synthesis/results/
 !synthesis/toy_spider/train
+prompts/
+models/
+results/
 
 spider_data/
 spider2_data/
@@ -45,4 +48,6 @@ tmp/
 *.zip
 *.db
 *.gguf
+*.yaml
 Data_Synthesizer/data
+

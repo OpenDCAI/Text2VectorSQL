@@ -2,7 +2,7 @@ import json
 import re
 import time
 import random
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, models
 from tqdm import tqdm
 import numpy as np
 import math
@@ -10,6 +10,61 @@ from scipy.spatial.distance import cdist
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
+import logging
+
+# --- 配置日志 ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def load_embedding_model(model_name: str, cache_folder: str = None, device: str = 'cpu'):
+    """
+    智能加载 Sentence Transformer 模型。
+    会首先尝试标准方法加载，如果失败并检测到是CLIP模型的常见错误，
+    则切换到手动模块化方法。如果仍然失败，则抛出最终错误。
+
+    :param model_name: Hugging Face 上的模型名称或本地路径
+    :param cache_folder: 模型缓存的本地文件夹路径
+    :param device: 运行模型的设备 ('cpu', 'cuda', etc.)
+    :return: 加载好的 SentenceTransformer 模型对象
+    """
+    
+    # --- 步骤 1: 尝试使用标准方法直接加载 ---
+    try:
+        logging.info(f"【尝试方法 1】使用标准方法加载模型: '{model_name}'")
+        model = SentenceTransformer(
+            model_name_or_path=model_name,
+            device=device,
+            cache_folder=cache_folder
+        )
+        logging.info("✅ 标准方法加载成功！")
+        return model
+    except AttributeError as e:
+        # 捕捉到 AttributeError，检查是否是 CLIP 模型的典型错误
+        if 'CLIPConfig' in str(e) and 'hidden_size' in str(e):
+            logging.warning(f"⚠️ 标准方法失败，检测到CLIP模型结构不兼容错误。")
+            logging.info(f"【尝试方法 2】切换到CLIP手动加载方法...")
+            
+            # --- 步骤 2: 尝试使用手动模块化方法加载 CLIP 模型 ---
+            try:
+                clip_model_module = models.CLIPModel(model_name=model_name)
+                model = SentenceTransformer(
+                    modules=[clip_model_module],
+                    device=device,
+                    cache_folder=cache_folder
+                )
+                logging.info("✅ CLIP手动加载方法成功！")
+                return model
+            except Exception as clip_error:
+                logging.error(f"❌ CLIP手动加载方法也失败了。")
+                # 如果手动方法也失败了，就将错误抛出
+                raise clip_error
+        else:
+            # 如果是其他类型的 AttributeError，说明是未知问题，直接抛出
+            logging.error(f"❌ 加载失败，发生未预料的 AttributeError。")
+            raise e
+    except Exception as other_error:
+        # 捕捉其他所有可能的错误（如网络问题、模型不存在等）
+        logging.error(f"❌ 加载失败，发生未知错误。")
+        raise other_error
 
 def visualize_embeddings(embeddings, min_index):
     pca = PCA(n_components=2)
@@ -86,12 +141,11 @@ def edu_distance(vector1, vector2):
         distance += (num1-num2) ** 2
     return math.sqrt(distance)
 
-if __name__ == "__main__":
-    input_dataset = json.load(open("./results/question_synthesis.json"))
-    output_file = "./results/question_and_sql_pairs.json"
+def post_process_questions(input_dataset_path="./results/question_synthesis.json",output_file = "./results/question_and_sql_pairs.json",model_name_or_path = "sentence-transformers/all-mpnet-base-v2",model_embedding_cache="./cache/model"):
+    input_dataset = json.load(open(input_dataset_path))
 
     print("loading SentenceTransformer....")
-    embedding_model = SentenceTransformer(model_name_or_path = "sentence-transformers/all-mpnet-base-v2")
+    embedding_model = load_embedding_model(model_name=model_name_or_path,cache_folder=model_embedding_cache)
 
     valid_questions_num = []
     result_dataset = []
