@@ -1,7 +1,6 @@
 #!/bin/bash
 export HF_ENDPOINT=https://hf-mirror.com
-# python server.py --config config.yaml
-python sentence_server.py --config config.yaml
+python server.py --config config.yaml
 
 # curl http://localhost:8000/health
 # curl -X POST http://localhost:8000/embed \

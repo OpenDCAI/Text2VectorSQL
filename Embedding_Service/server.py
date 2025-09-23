@@ -9,18 +9,19 @@ import uvicorn
 import yaml
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from vllm import LLM
+# 【修改】移除 vllm，导入 SentenceTransformer
+from sentence_transformers import SentenceTransformer
 
 # --- Globals ---
-# Will be populated by the config file and startup event
+# 【修改】将 LLM_ENGINES 重命名为 MODELS，以反映其内容
 CONFIG = {}
-LLM_ENGINES = {}
+MODELS = {}
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("EmbeddingService")
 
-# --- Pydantic Models for API validation ---
+# --- Pydantic Models for API validation (保持不变) ---
 class EmbeddingRequest(BaseModel):
     model: str = Field(..., description="The name of the model to use for embedding (must match a name in config.yaml).")
     texts: List[str] = Field(..., description="A list of texts to embed.")
@@ -38,8 +39,8 @@ async def lifespan(app: FastAPI):
     """
     logger.info("Starting up Embedding Service...")
     
-    # Load configuration
-    parser = argparse.ArgumentParser(description="Embedding Service with vLLM and FastAPI")
+    # 加载配置的逻辑保持不变
+    parser = argparse.ArgumentParser(description="Embedding Service with Sentence-Transformers and FastAPI")
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to the configuration YAML file.")
     args = parser.parse_args()
     
@@ -55,7 +56,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error loading configuration: {e}. Exiting.")
         exit(1)
 
-    # Load models into vLLM engines
+    # 【修改】使用 SentenceTransformer 加载模型
     if not CONFIG.get('models'):
         logger.error("No models found in the configuration file. Exiting.")
         exit(1)
@@ -67,22 +68,20 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Skipping invalid model configuration: {model_config}")
             continue
         
-        logger.info(f"Loading model '{model_name}' from '{hf_path}'...")
+        logger.info(f"Loading model '{model_name}' from '{hf_path}' using Sentence-Transformers...")
         try:
-            # Note: vLLM's LLM class is now the standard way for both generation and encoding
-            llm = LLM(
-                model=hf_path,
-                trust_remote_code=model_config.get('trust_remote_code', True),
-                tensor_parallel_size=model_config.get('tensor_parallel_size', 1),
-                max_model_len=model_config.get('max_model_len', 512),
-                # For embedding, we don't need sampling, so engine is simpler
+            # 【核心修改】使用 SentenceTransformer 替换 vllm.LLM
+            # SentenceTransformer 也支持 trust_remote_code 参数
+            model = SentenceTransformer(
+                model_name_or_path=hf_path,
+                trust_remote_code=model_config.get('trust_remote_code', True)
             )
-            LLM_ENGINES[model_name] = llm
+            MODELS[model_name] = model
             logger.info(f"Successfully loaded model '{model_name}'.")
         except Exception as e:
             logger.error(f"Failed to load model '{model_name}': {e}")
 
-    if not LLM_ENGINES:
+    if not MODELS:
         logger.error("No models were successfully loaded. Shutting down.")
         exit(1)
         
@@ -90,14 +89,15 @@ async def lifespan(app: FastAPI):
     
     # --- Shutdown logic (if any) ---
     logger.info("Shutting down Embedding Service...")
-    LLM_ENGINES.clear()
+    MODELS.clear()
 
 
 # --- FastAPI App Initialization ---
 app = FastAPI(
-    title="Text2VectorSQL Embedding Service",
-    description="A high-performance embedding API service powered by vLLM and FastAPI.",
-    version="1.0.0",
+    # 【修改】更新服务描述
+    title="Text2VectorSQL Embedding Service (Sentence-Transformers Backend)",
+    description="A high-performance embedding API service powered by Sentence-Transformers and FastAPI.",
+    version="1.0.1",
     lifespan=lifespan
 )
 
@@ -105,36 +105,33 @@ app = FastAPI(
 @app.get("/health")
 async def health_check():
     """Health check endpoint to verify service is running."""
-    return {"status": "ok", "loaded_models": list(LLM_ENGINES.keys())}
+    # 【修改】更新对全局变量的引用
+    return {"status": "ok", "loaded_models": list(MODELS.keys())}
 
 @app.post("/embed", response_model=EmbeddingResponse)
 async def create_embeddings(request: EmbeddingRequest):
     """
     Takes a list of texts and returns their embeddings using the specified model.
     """
-    if request.model not in LLM_ENGINES:
-        raise HTTPException(status_code=404, detail=f"Model '{request.model}' not found. Available models: {list(LLM_ENGINES.keys())}")
+    # 【修改】从 MODELS 字典中获取模型
+    if request.model not in MODELS:
+        raise HTTPException(status_code=404, detail=f"Model '{request.model}' not found. Available models: {list(MODELS.keys())}")
     
-    engine = LLM_ENGINES[request.model]
+    model_engine = MODELS[request.model]
     
     try:
-        # 【修正】直接调用同步的 encode 方法，移除 await
-        request_outputs = engine.encode(request.texts)
-        
-        # 提取嵌入向量的逻辑保持不变
-        embeddings = [output.outputs.embedding for output in request_outputs]
+        # 【核心修改】调用 SentenceTransformer 的 encode 方法
+        # convert_to_numpy=False 直接返回 list[list[float]]，符合 API 响应模型
+        embeddings = model_engine.encode(request.texts, convert_to_numpy=False)
         
         return EmbeddingResponse(model=request.model, embeddings=embeddings)
     except Exception as e:
         logger.error(f"Error during embedding process for model '{request.model}': {e}")
         raise HTTPException(status_code=500, detail="Internal server error during embedding.")
 
-# --- Main execution block ---
+# --- Main execution block (保持不变) ---
 if __name__ == "__main__":
     if not CONFIG:
-        # This block will run if the script is started directly,
-        # but lifespan event is the main logic driver.
-        # We need to pre-load config to get host/port for uvicorn.run
         parser = argparse.ArgumentParser()
         parser.add_argument("--config", type=str, default="config.yaml")
         args, _ = parser.parse_known_args()
@@ -147,7 +144,6 @@ if __name__ == "__main__":
         except Exception:
             host, port = "0.0.0.0", 8000
     else:
-        # Config loaded via lifespan
         server_config = CONFIG.get('server', {})
         host = server_config.get('host', '0.0.0.0')
         port = server_config.get('port', 8000)
