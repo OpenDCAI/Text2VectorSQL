@@ -203,7 +203,7 @@ def post_process_cot(results_path, db_dir, output_dir, server_url, model_name):
 
             valid_cot_num = sum(len(cots) for cots in major_voting_dict.values())
             
-            if valid_cot_num < 1:
+            if valid_cot_num < 3:
                 major_voting_filter_num += 1
                 continue
             

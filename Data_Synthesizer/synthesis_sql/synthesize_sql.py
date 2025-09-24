@@ -5,21 +5,56 @@ import os
 from dotenv import load_dotenv
 from tqdm import tqdm
 from openai import OpenAI
-from functools import lru_cache
+# 移除了 lru_cache，引入了 Lock 用于线程安全的文件写入
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Lock
 
 # Load environment variables from a .env file
 load_dotenv()
 
-# 缓存装饰器，最多缓存10000个结果
-@lru_cache(maxsize=10000)
-def cached_llm_call(model: str, prompt: str, api_url: str, api_key: str) -> str:
+# --- 新增：用于线程安全地写入缓存文件的锁 ---
+cache_lock = Lock()
+
+# --- 新增：持久化磁盘缓存函数 ---
+def load_cache(cache_file: str) -> dict:
     """
-    Cached version of the LLM call to avoid redundant requests for same prompts.
-    使用OpenAI Python SDK 1.0.0+版本的新API调用方式
+    从 .jsonl 文件加载缓存。
+    每一行都是一个独立的 JSON 对象 {"key": prompt, "value": response}。
+    这种方式可以抵抗因程序中断导致的文件损坏。
     """
-    # 创建客户端实例
+    if not os.path.exists(cache_file):
+        return {}
+    
+    cache = {}
+    with open(cache_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+                if "key" in record and "value" in record:
+                    cache[record["key"]] = record["value"]
+            except json.JSONDecodeError:
+                print(f"Skipping corrupted line in cache file: {line}")
+    return cache
+
+def save_to_cache(cache_file: str, key: str, value: str):
+    """
+    将单个键值对安全地以 .jsonl 格式追加到缓存文件中。
+    使用追加模式 ('a')，既高效又安全。
+    """
+    with cache_lock:
+        record = {"key": key, "value": value}
+        with open(cache_file, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+# --- 修改：移除了 @lru_cache 装饰器 ---
+def make_llm_call(model: str, prompt: str, api_url: str, api_key: str) -> str:
+    """
+    实际执行 LLM API 调用的函数。
+    """
     client = OpenAI(
         api_key=api_key,
         base_url=api_url if api_url else None
@@ -42,52 +77,78 @@ def parse_response(response):
     sql_blocks = re.findall(pattern, response, re.DOTALL)
 
     if sql_blocks:
-        # Extract the last SQL query in the response text and remove extra whitespace characters
         last_sql = sql_blocks[-1].strip()
         return last_sql
     else:
         print("No SQL blocks found.")
         return ""
 
-def llm_inference(model: str, prompts: list, db_ids: list, api_url: str, api_key: str, parallel: bool = True) -> list:
+# --- 修改：整合了新的缓存逻辑 ---
+def llm_inference(
+    model: str, 
+    prompts: list, 
+    db_ids: list, 
+    api_url: str, 
+    api_key: str, 
+    cache_file_path: str, # 新增缓存文件路径参数
+    parallel: bool = True
+) -> list:
     """
-    Generates responses using an LLM for given prompts with caching and parallel execution.
-
-    Args:
-        model: The LLM to use for generating responses.
-        prompts (list of str): A list of prompts for the model.
-        db_ids (list of str): A list of database IDs corresponding to each prompt.
-        api_url (str): OpenAI API URL
-        api_key (str): OpenAI API key
-        parallel (bool): Whether to use parallel execution
-
-    Returns:
-        list of dict: A list of dictionaries containing the prompt, db_id, and generated response.
+    使用持久化磁盘缓存生成 LLM 响应。
     """
     
-    def process_item(prompt, db_id):
-        response = cached_llm_call(model, prompt, api_url, api_key)
-        return {
+    # 1. 加载现有缓存
+    cache = load_cache(cache_file_path)
+    print(f"Loaded {len(cache)} items from cache file: {cache_file_path}")
+
+    # 2. 筛选出需要新处理的任务
+    prompts_to_process = []
+    # 创建 prompt -> db_id 的映射，方便后续使用
+    prompt_to_db_id = dict(zip(prompts, db_ids))
+
+    for prompt in prompts:
+        if prompt not in cache:
+            prompts_to_process.append(prompt)
+    
+    print(f"Total prompts: {len(prompts)}, To process: {len(prompts_to_process)}")
+
+    # 3. 定义单个任务的处理函数
+    def process_item(prompt):
+        # 调用 API
+        response = make_llm_call(model, prompt, api_url, api_key)
+        # 成功后立刻写入缓存
+        if response:
+            save_to_cache(cache_file_path, prompt, response)
+        return prompt, response
+
+    # 4. 执行需要处理的任务（并行或顺序）
+    if prompts_to_process:
+        if parallel:
+            with ThreadPoolExecutor(max_workers=32) as executor:
+                # 使用 list 包装 tqdm 以立即显示进度条
+                results_iterator = list(tqdm(
+                    executor.map(process_item, prompts_to_process),
+                    total=len(prompts_to_process),
+                    desc="Generating responses"
+                ))
+                # 将新结果更新到内存缓存中
+                for prompt, response in results_iterator:
+                    cache[prompt] = response
+        else:
+            for prompt in tqdm(prompts_to_process, desc="Generating responses"):
+                _, response = process_item(prompt)
+                cache[prompt] = response
+    
+    # 5. 组装最终结果
+    final_results = []
+    for prompt, db_id in zip(prompts, db_ids):
+        final_results.append({
             "prompt": prompt,
             "db_id": db_id,
-            "response": response
-        }
-    
-    if parallel:
-        # 使用线程池并行处理
-        with ThreadPoolExecutor(max_workers=32) as executor:
-            results = list(tqdm(
-                executor.map(process_item, prompts, db_ids),
-                total=len(prompts),
-                desc="Generating responses"
-            ))
-    else:
-        # 顺序处理
-        results = []
-        for prompt, db_id in tqdm(zip(prompts, db_ids), total=len(prompts), desc="Generating responses"):
-            results.append(process_item(prompt, db_id))
-    
-    return results
+            "response": cache.get(prompt, "") # 从更新后的缓存中获取结果
+        })
+
+    return final_results
 
 def run_sql_synthesis(
     input_file: str,
@@ -95,33 +156,27 @@ def run_sql_synthesis(
     model_name: str,
     api_key: str,
     api_url: str,
+    cache_file_path: str, # 新增缓存文件路径参数
     parallel: bool
 ):
     """
-    Runs the main logic for SQL synthesis from a dataset.
-
-    Args:
-        input_file (str): Path to the input JSON file with prompts.
-        output_file (str): Path to the output JSON file for results.
-        model_name (str): Name of the LLM model to use.
-        api_key (str): API key for the LLM service.
-        api_url (str): Base URL for the LLM API.
-        parallel (bool): Flag to enable or disable parallel execution.
+    主逻辑函数，现在包含缓存路径。
     """
-    # Add a check to ensure required variables are set
     if not api_key or not model_name:
         raise ValueError("Error: api_key and model_name must be provided.")
 
     print("--- Running Synthesis with Configuration ---")
     print(f"Model: {model_name}")
     print(f"API URL: {api_url}")
+    print(f"Cache File: {cache_file_path}") # 打印缓存文件路径
     print(f"Parallel Execution Enabled: {parallel}")
     print(f"Input File: {input_file}")
     print(f"Output File: {output_file}")
     print("------------------------------------------")
     
-    # 确保输出目录存在
     Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+    # 确保缓存目录也存在
+    Path(cache_file_path).parent.mkdir(parents=True, exist_ok=True)
     
     input_dataset = json.load(open(input_file, encoding="utf-8"))
     
@@ -134,6 +189,7 @@ def run_sql_synthesis(
         db_ids=db_ids,
         api_url=api_url,
         api_key=api_key,
+        cache_file_path=cache_file_path, # 传递缓存路径
         parallel=parallel
     )
 
@@ -144,30 +200,30 @@ def run_sql_synthesis(
 
 
 if __name__ == '__main__':
-    # This block now handles command-line parsing and environment variable loading,
-    # then calls the main logic function with the collected configuration.
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_file", type=str, default="./prompts/sql_synthesis_prompts.json", 
                         help="Input JSON file with prompts")
     parser.add_argument("--output_file", type=str, default="./results/sql_synthesis.json", 
                         help="Output JSON file for results")
+    # 新增缓存文件路径的命令行参数
+    parser.add_argument("--cache_file", type=str, default="./cache/synthesis_cache.jsonl",
+                        help="Path to the persistent cache file")
     opt = parser.parse_args()
 
-    # Load configuration from environment variables
+    # 从环境变量加载配置
     api_key_env = os.getenv("API_KEY")
     api_url_env = os.getenv("BASE_URL")
     model_name_env = os.getenv("LLM_MODEL_NAME")
     
-    # Handle the boolean value for NO_PARALLEL from environment variables
     no_parallel_str = os.getenv("NO_PARALLEL", "false").lower()
     parallel_execution = not (no_parallel_str == 'true')
 
-    # Call the main function with the loaded and parsed configuration
     run_sql_synthesis(
         input_file=opt.input_file,
         output_file=opt.output_file,
         model_name=model_name_env,
         api_key=api_key_env,
         api_url=api_url_env,
+        cache_file_path=opt.cache_file, # 传递缓存路径
         parallel=parallel_execution
     )

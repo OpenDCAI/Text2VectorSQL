@@ -19,22 +19,38 @@ load_dotenv()
 cache_lock = Lock()
 
 def load_cache(cache_file):
-    """加载缓存文件。如果文件不存在或为空，则返回一个空字典。"""
+    """
+    加载 .jsonl 格式的缓存文件。
+    每一行都是一个独立的 JSON 对象 {"key": "...", "value": ...}。
+    """
     if not os.path.exists(cache_file):
         return {}
+    
+    cache = {}
     with open(cache_file, 'r', encoding='utf-8') as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return {}
+        for line in f:
+            try:
+                # 移除行尾的换行符并解析
+                record = json.loads(line.strip())
+                # 假设每行的格式是 {"key": prompt, "value": responses}
+                if "key" in record and "value" in record:
+                    cache[record["key"]] = record["value"]
+            except json.JSONDecodeError:
+                # 忽略损坏的行（通常是最后一行）
+                print(f"Skipping corrupted line in cache file: {line.strip()}")
+    return cache
 
 def save_to_cache(cache_file, key, value):
-    """将单个键值对安全地保存到缓存文件中。"""
+    """
+    将单个键值对安全地以 .jsonl 格式追加到缓存文件中。
+    """
     with cache_lock:
-        cache = load_cache(cache_file)
-        cache[key] = value
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            json.dump(cache, f, indent=2, ensure_ascii=False)
+        # 创建一个包含键和值的记录
+        record = {"key": key, "value": value}
+        # 使用追加模式 'a' 写入
+        with open(cache_file, 'a', encoding='utf-8') as f:
+            # 将记录转换为 JSON 字符串并写入，然后添加换行符
+            f.write(json.dumps(record, ensure_ascii=False) + '\n')
 
 def llm_inference(dataset, api_key, base_url, llm_model_name, max_workers, cache_file_path, num_responses, temperature):
     """

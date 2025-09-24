@@ -218,18 +218,23 @@ def contains_virtual_table(statements):
     return False
 
 def obtain_db_schema(db_file_dir):
-    conn = sqlite3.connect(db_file_dir)
-    cursor = conn.cursor()
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn) 
-    sqlite_lembed.load(conn)
-    cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='table';")
-    tables = cursor.fetchall()
-    table_names = [table[0] for table in tables]
-    create_statements = [table[1] for table in tables]
-    cursor.close()
-    conn.close()
-    return table_names, create_statements
+    try:
+        conn = sqlite3.connect(db_file_dir)
+        cursor = conn.cursor()
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn) 
+        sqlite_lembed.load(conn)
+        cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+        table_names = [table[0] for table in tables]
+        create_statements = [table[1] for table in tables]
+        cursor.close()
+        conn.close()
+        return table_names, create_statements
+    except Exception as e:
+        print(f"error occur in obtain_da_schema: {e}")
+        print(f"error db_path: {db_file_dir}")
+        return [], []
 
 def extract_column_descriptions(create_statements):
     column_name2column_desc = dict()
@@ -256,7 +261,7 @@ def enhance_vector_info(sql, column_info):
                 column_info[col] = f"Vector column for similarity search: {column_info.get(col, '')}"
     return column_info
 
-def sqlite_generate_question_synthesis_prompts(db_path="sqlite/results/toy_spider/vector_databases_toy",sql_infos_path="sqlite/results/toy_spider/synthetic_sqls.json",question_synthesis_template_path="sqlite/prompt_templates/question_synthesis_prompt.txt",output_json_path="sqlite/prompts/toy_spider/question_synthesis_prompts.json"):
+def sqlite_generate_question_synthesis_prompts(db_path_base="sqlite/results/toy_spider/vector_databases_toy",sql_infos_path="sqlite/results/toy_spider/synthetic_sqls.json",question_synthesis_template_path="sqlite/prompt_templates/question_synthesis_prompt.txt",output_json_path="sqlite/prompts/toy_spider/question_synthesis_prompts.json"):
     random.seed(42)
     sql_infos = json.load(open(sql_infos_path))
     question_synthesis_template = open(question_synthesis_template_path).read()
@@ -267,8 +272,8 @@ def sqlite_generate_question_synthesis_prompts(db_path="sqlite/results/toy_spide
     db_id_vec_flag = dict()
     
     for db_id in tqdm(db_ids, desc="Processing databases"):
-        db_path = os.path.join(db_path, db_id, db_id + ".sqlite")
-        db_path_final = os.path.join(db_path, db_id, db_id + "_final.sqlite")
+        db_path = os.path.join(db_path_base, db_id, db_id + ".sqlite")
+        db_path_final = os.path.join(db_path_base, db_id, db_id + "_final.sqlite")
         if os.path.exists(db_path_final):
             db_path = db_path_final
         table_names, create_statements = obtain_db_schema(db_path)

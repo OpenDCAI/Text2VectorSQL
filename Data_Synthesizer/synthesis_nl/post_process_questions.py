@@ -1,87 +1,86 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import json
 import re
 import time
 import random
-from sentence_transformers import SentenceTransformer, models
-from tqdm import tqdm
 import numpy as np
 import math
 from scipy.spatial.distance import cdist
 from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 import logging
+from tqdm import tqdm
+import os
+from typing import List, Dict, Any
+
+# --- 新增 --- - 引入 requests 库用于HTTP通信
+import requests
 
 # --- 配置日志 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def load_embedding_model(model_name: str, cache_folder: str = None, device: str = 'cpu'):
-    """
-    智能加载 Sentence Transformer 模型。
-    会首先尝试标准方法加载，如果失败并检测到是CLIP模型的常见错误，
-    则切换到手动模块化方法。如果仍然失败，则抛出最终错误。
+# ----------------------------------------------------------
+# 1. (新增) 与VLLM服务交互的工具函数
+#    用于替换本地的 SentenceTransformer 模型
+# ----------------------------------------------------------
 
-    :param model_name: Hugging Face 上的模型名称或本地路径
-    :param cache_folder: 模型缓存的本地文件夹路径
-    :param device: 运行模型的设备 ('cpu', 'cuda', etc.)
-    :return: 加载好的 SentenceTransformer 模型对象
+def get_embeddings_from_server_batch(texts: List[str], server_url: str, model_name: str) -> np.ndarray:
     """
+    向本地的 embedding_server.py 服务发送批量文本请求并返回嵌入向量。
     
-    # --- 步骤 1: 尝试使用标准方法直接加载 ---
+    :param texts: 需要编码的文本列表
+    :param server_url: VLLM 服务的 URL
+    :param model_name: 在 VLLM 服务中加载的模型名称
+    :return: 嵌入向量的 Numpy 数组
+    """
+    if not texts:
+        return np.array([])
+
+    # 构建符合 embedding_server.py API 的请求体
+    payload = {
+        "model": model_name,
+        "texts": texts
+    }
     try:
-        logging.info(f"【尝试方法 1】使用标准方法加载模型: '{model_name}'")
-        model = SentenceTransformer(
-            model_name_or_path=model_name,
-            device=device,
-            cache_folder=cache_folder
-        )
-        logging.info("✅ 标准方法加载成功！")
-        return model
-    except AttributeError as e:
-        # 捕捉到 AttributeError，检查是否是 CLIP 模型的典型错误
-        if 'CLIPConfig' in str(e) and 'hidden_size' in str(e):
-            logging.warning(f"⚠️ 标准方法失败，检测到CLIP模型结构不兼容错误。")
-            logging.info(f"【尝试方法 2】切换到CLIP手动加载方法...")
-            
-            # --- 步骤 2: 尝试使用手动模块化方法加载 CLIP 模型 ---
-            try:
-                clip_model_module = models.CLIPModel(model_name=model_name)
-                model = SentenceTransformer(
-                    modules=[clip_model_module],
-                    device=device,
-                    cache_folder=cache_folder
-                )
-                logging.info("✅ CLIP手动加载方法成功！")
-                return model
-            except Exception as clip_error:
-                logging.error(f"❌ CLIP手动加载方法也失败了。")
-                # 如果手动方法也失败了，就将错误抛出
-                raise clip_error
-        else:
-            # 如果是其他类型的 AttributeError，说明是未知问题，直接抛出
-            logging.error(f"❌ 加载失败，发生未预料的 AttributeError。")
-            raise e
-    except Exception as other_error:
-        # 捕捉其他所有可能的错误（如网络问题、模型不存在等）
-        logging.error(f"❌ 加载失败，发生未知错误。")
-        raise other_error
+        logging.info(f"向 {server_url} 发送 {len(texts)} 条文本进行编码...")
+        response = requests.post(server_url, json=payload, timeout=180) # 增加超时以应对大批量
+        # 如果请求失败 (如 4xx, 5xx 错误), 抛出异常
+        response.raise_for_status()
+        result = response.json()
+        # 从响应中获取嵌入向量列表
+        embeddings = result["embeddings"]
+        logging.info("成功从VLLM服务获取嵌入向量。")
+        return np.array(embeddings)
+    except requests.exceptions.RequestException as e:
+        logging.error(f"❌ 请求VLLM服务失败: {e}")
+        raise
+    except (KeyError, IndexError) as e:
+        logging.error(f"❌ 解析VLLM响应失败，检查返回的JSON结构: {result}")
+        raise
 
-def visualize_embeddings(embeddings, min_index):
-    pca = PCA(n_components=2)
-    embeddings_2d = pca.fit_transform(embeddings)
+# ----------------------------------------------------------
+# 2. (已移除) 不再需要本地模型加载函数
+#    `load_embedding_model` 函数已被删除
+# ----------------------------------------------------------
 
-    plt.figure(figsize=(8, 6))
+# def visualize_embeddings(embeddings, min_index):
+#     pca = PCA(n_components=2)
+#     embeddings_2d = pca.fit_transform(embeddings)
 
-    plt.scatter(embeddings_2d[:, 0], embeddings_2d[:, 1], color='red', label='Other Points')
-    plt.scatter(embeddings_2d[min_index, 0], embeddings_2d[min_index, 1], color='blue', label='Central Point', s=100)
+#     plt.figure(figsize=(8, 6))
 
-    plt.legend()
+#     plt.scatter(embeddings_2d[:, 0], embeddings_2d[:, 1], color='red', label='Other Points')
+#     plt.scatter(embeddings_2d[min_index, 0], embeddings_2d[min_index, 1], color='blue', label='Central Point', s=100)
 
-    plt.title('2D PCA of Embeddings')
-    plt.xlabel('PCA Component 1')
-    plt.ylabel('PCA Component 2')
+#     plt.legend()
 
-    plt.savefig(f"embeddings/figure-{random.randint(0,10000000000)}")
+#     plt.title('2D PCA of Embeddings')
+#     plt.xlabel('PCA Component 1')
+#     plt.ylabel('PCA Component 2')
+
+#     plt.savefig(f"embeddings/figure-{random.randint(0,10000000000)}")
 
 def parse_llm_response(response, style):
     explanation_pattern = re.compile(r'\[EXPLANATION-START\](.*?)\[EXPLANATION-END\]', re.DOTALL)
@@ -141,18 +140,33 @@ def edu_distance(vector1, vector2):
         distance += (num1-num2) ** 2
     return math.sqrt(distance)
 
-def post_process_questions(input_dataset_path="./results/question_synthesis.json",output_file = "./results/question_and_sql_pairs.json",model_name_or_path = "sentence-transformers/all-mpnet-base-v2",model_embedding_cache="./cache/model"):
-    input_dataset = json.load(open(input_dataset_path))
+# ----------------------------------------------------------
+# 3. (已修改) 主流程函数
+# ----------------------------------------------------------
+def post_process_questions(input_dataset_path: str, output_file: str, server_url: str, model_name: str):
+    """
+    主处理函数，现在调用外部服务获取嵌入。
+    
+    :param input_dataset_path: 输入的JSON文件路径
+    :param output_file: 输出的JSON文件路径
+    :param server_url: VLLM 服务的 URL
+    :param model_name: 在 VLLM 服务中加载的模型名称
+    """
+    with open(input_dataset_path, 'r', encoding='utf-8') as f:
+        input_dataset = json.load(f)
 
-    print("loading SentenceTransformer....")
-    embedding_model = load_embedding_model(model_name=model_name_or_path,cache_folder=model_embedding_cache)
+    # --- (修改点) 不再加载本地模型 ---
+    # print("loading SentenceTransformer....")
+    # embedding_model = load_embedding_model(model_name=model_name_or_path,cache_folder=model_embedding_cache)
+    logging.info(f"配置完成，将使用VLLM服务 at {server_url} with model {model_name}")
 
     valid_questions_num = []
     result_dataset = []
-    for data in tqdm(input_dataset):
+    for data in tqdm(input_dataset, desc="处理问题数据"):
         question_infos = []
-        for response in data["responses"]:
-            question_info = parse_llm_response(response, data["style"])
+        # 假设 'responses' 键存在并且是一个列表
+        for response in data.get("responses", []):
+            question_info = parse_llm_response(response, data.get("style", ""))
             if question_info is not None:
                 question_infos.append(question_info)
         
@@ -170,9 +184,14 @@ def post_process_questions(input_dataset_path="./results/question_synthesis.json
             texts = [question_info["external_knowledge"] + " " + question_info["question"] for question_info in question_infos]
             texts = [text.strip() for text in texts]
 
-            # we vote the final question according to the question embeddings
-            # texts = [question_info["question"] for question_info in question_infos]
-            embeddings = embedding_model.encode(texts)
+            # --- (修改点) 调用外部服务获取嵌入 ---
+            try:
+                embeddings = get_embeddings_from_server_batch(texts, server_url, model_name)
+            except Exception as e:
+                logging.error(f"获取嵌入失败，跳过此数据点 (SQL: {data['sql'][:50]}...): {e}")
+                # 出现异常时，可以选择随机选一个作为备用方案
+                result_dataset.append(integrate_info(data, random.sample(question_infos, 1)[0]))
+                continue
             
             # find the index of the question at the central point
             distance_matrix = cdist(embeddings, embeddings, metric = 'cosine') # metric='cityblock' or metric='euclidean'
@@ -181,14 +200,9 @@ def post_process_questions(input_dataset_path="./results/question_synthesis.json
             
             result_dataset.append(integrate_info(data, question_infos[min_index]))
 
-            # print("EK:\n", integrate_info(data, question_infos[min_index])["external_knowledge"])
-            # print("Question:\n", integrate_info(data, question_infos[min_index])["question"])
-            # print("SQL:\n", integrate_info(data, question_infos[min_index])["sql"])
-            # print("---------------------------------------")
-            # visualize_embeddings(embeddings, min_index)
-
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write(json.dumps(result_dataset, indent=2, ensure_ascii=False))
+        json.dump(result_dataset, f, indent=2, ensure_ascii=False)
+    logging.info(f"✅ 处理完成，结果已写入 {output_file}")
 
     question_num2count = dict()
     for num in valid_questions_num:
@@ -196,4 +210,32 @@ def post_process_questions(input_dataset_path="./results/question_synthesis.json
             question_num2count[num] += 1
         else:
             question_num2count[num] = 1
+    print("有效问题数量分布:")
     print(question_num2count)
+
+# ----------------------------------------------------------
+# 4. (已修改) CLI - 如何调用
+# ----------------------------------------------------------
+if __name__ == "__main__":
+    # !!!重要!!!: 运行此脚本前，请确保你的 embedding_server.py 服务正在运行!
+
+    # --- 请在这里配置你的参数 ---
+    INPUT_FILE = "./results/question_synthesis.json"
+    OUTPUT_FILE = "./results/question_and_sql_pairs.json"
+    
+    # 你的VLLM服务地址和在服务中加载的模型名称
+    VLLM_SERVER_URL = "http://127.0.0.1:8000/embed"  # 确保这与你 embedding_server.py 的地址和端口匹配
+    MODEL_IN_VLLM = "CLIP-ViT-B-32-laion2B-s34B-b79K" # 必须与你服务 config.yaml 中的 'name' 字段完全匹配
+
+    # 创建输出目录（如果不存在）
+    output_dir = os.path.dirname(OUTPUT_FILE)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # 调用主函数
+    post_process_questions(
+        input_dataset_path=INPUT_FILE,
+        output_file=OUTPUT_FILE,
+        server_url=VLLM_SERVER_URL,
+        model_name=MODEL_IN_VLLM
+    )

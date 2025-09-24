@@ -7,11 +7,17 @@ server:
 # 'name' is the alias you will use in API calls.
 # 'hf_model_path' is the model identifier from Hugging Face Hub.
 models:
-  - name: "sentence-transformers/clip-ViT-B-32"
-    hf_model_path: "sentence-transformers/clip-ViT-B-32"
+  - name: "all-MiniLM-L6-v2"
+    hf_model_path: "sentence-transformers/all-MiniLM-L6-v2"
     trust_remote_code: true
     tensor_parallel_size: 1  # Adjust based on your number of GPUs
-    max_model_len: 77      # Max sequence length for the model
+    max_model_len: 255      # Max sequence length for the model
+
+  # - name: "sentence-transformers/clip-ViT-B-32"
+  #   hf_model_path: "sentence-transformers/clip-ViT-B-32"
+  #   trust_remote_code: true
+  #   tensor_parallel_size: 1  # Adjust based on your number of GPUs
+  #   max_model_len: 77      # Max sequence length for the model
 
   # - name: "gte-large"
   #   hf_model_path: "thenlper/gte-large"
