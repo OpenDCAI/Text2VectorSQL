@@ -20,6 +20,7 @@ results/
 !synthesis/toy_spider/train
 prompts/
 models/
+models_cache/
 results/
 
 spider_data/

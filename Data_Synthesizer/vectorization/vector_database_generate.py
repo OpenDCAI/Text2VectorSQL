@@ -1,231 +1,180 @@
-import os
-import sqlite3
-import json
+# vector_database_generate.py (最终修复版 - 使用唯一分隔符)
+
+import sqlite3, datetime, traceback, json, os, re
+from tqdm import tqdm
 import logging
-from typing import List, Dict, Any, Optional
+from sentence_transformers import SentenceTransformer
 import sqlite_vec
+from io import StringIO
 
-# --- 健壮性提升：定义一个唯一的、不会与数据冲突的SQL命令分隔符 ---
-SQL_DELIMITER = "\n-- VEC_SQL_SEPARATOR --\n"
+# ... 从 sanitize_identifier 到 sql_format_value 的所有函数保持不变 ...
+def sanitize_identifier(s: str) -> str:
+    s = str(s).replace(' ', '_').replace('(', '').replace(')', '')
+    s = re.sub(r'[^a-zA-Z0-9_]', '_', s)
+    if not re.match(r'^[a-zA-Z]', s): s = 'fld_' + s
+    if s.lower() == 'distance': s = 'distance_val'
+    return s
 
-# --- 核心辅助函数 (保持不变) ---
+def type_convert(t: str) -> str:
+    if not t: return 'TEXT'
+    t = t.upper().split('(')[0]
+    if "INT" in t or "NUMBER" in t: return 'INTEGER'
+    if any(k in t for k in ["REAL", "NUMERIC", "DECIMAL", "FLOAT", "DOUBLE"]): return 'FLOAT'
+    return 'TEXT'
 
-def sql_format_value(val: Any, column_type: str) -> str:
-    """
-    根据列的数据类型，将Python值安全地格式化为SQL字面量。
-    - 为None或空字符串等空值提供类型安全的默认值。
-    - 正确处理数值、字符串、布尔值和字节。
-    """
-    ct = column_type.upper()
+def create_virtual_table_ddl(conn, table_name, db_info, vec_dim):
+    cursor = conn.cursor()
+    cursor.execute(f'PRAGMA table_info("{table_name}");')
+    cols = []
+    original_cols = {c[1] for c in cursor.fetchall()}
+    cursor.execute(f'PRAGMA table_info("{table_name}");')
+    for _, name, type, _, _, _ in cursor.fetchall():
+        cols.append(f'  {sanitize_identifier(name)} {type_convert(type)}')
+    if table_name in db_info.get("semantic_rich_column", {}):
+        for col_info in db_info["semantic_rich_column"][table_name]:
+            if col_info.get('column_name') in original_cols:
+                cols.append(f'  {sanitize_identifier(col_info["column_name"])}_embedding float[{vec_dim}]')
+    columns_str = ",\n".join(cols)
+    return f"CREATE VIRTUAL TABLE \"{table_name}\" USING vec0(\n{columns_str}\n)"
 
-    is_null_like = val is None or (isinstance(val, str) and val.strip() == '')
+def generate_embeddings_parallel(model, texts, batch_size=128, pool=None):
+    return model.encode_multi_process(texts, pool=pool, batch_size=batch_size) if pool else model.encode(texts, batch_size=batch_size, show_progress_bar=False)
 
-    if is_null_like:
-        if 'INT' in ct or 'BOOL' in ct:
-            return "0"
-        if 'REAL' in ct or 'FLOAT' in ct or 'DOUBLE' in ct:
-            return "0.0"
-        return "''"
+def sql_format_value(val):
+    if val is None: return "NULL"
+    if isinstance(val, (int, float)): return str(val)
+    if isinstance(val, bytes): return f"X'{val.hex()}'"
+    return "'" + str(val).replace("'", "''") + "'"
 
-    if isinstance(val, bool):
-        return "1" if val else "0"
-    
-    if isinstance(val, bytes):
-        return f"X'{val.hex()}'"
 
-    if 'INT' in ct:
-        try:
-            return str(int(float(val)))
-        except (ValueError, TypeError):
-            return "0"
-    if 'REAL' in ct or 'FLOAT' in ct or 'DOUBLE' in ct:
-        try:
-            return str(float(val))
-        except (ValueError, TypeError):
-            return "0.0"
-
-    clean_val = str(val).replace("'", "''").replace('\n', ' ').replace('\r', ' ')
-    return f"'{clean_val}'"
-
-def escape_sql_string(val: str) -> str:
-    return str(val).replace("'", "''")
-
-# --- 主要功能函数 (已修改) ---
-
-def generate_database_script(db_path: str, output_file: str, embedding_model, pool, table_json_path: str):
-    logging.info(f"Generating SQL script for database: {db_path}")
-
-    db_id = os.path.basename(os.path.dirname(db_path))
-    with open(table_json_path, 'r', encoding='utf-8') as f:
-        schema_data = json.load(f)
-
-    db_schema_info = next((item for item in schema_data if item['db_id'] == db_id), None)
-    
-    if not db_schema_info:
-        logging.error(f"Could not find schema for db_id '{db_id}' in {table_json_path}")
-        return
-
-    table_names = db_schema_info.get('table_names_original', [])
-    columns_original = db_schema_info.get('column_names_original', [])
-    column_types = db_schema_info.get('column_types', [])
-
-    if columns_original and columns_original[0][0] == -1:
-        aligned_columns_original = columns_original[1:]
-        aligned_column_types = column_types[1:]
-    else:
-        aligned_columns_original = columns_original
-        aligned_column_types = column_types
-
-    if len(aligned_columns_original) != len(aligned_column_types):
-        logging.error(f"Schema mismatch for {db_id}: Found {len(aligned_columns_original)} columns but {len(aligned_column_types)} types after alignment.")
-        return
-
-    unified_columns_info = []
-    for i, col_details in enumerate(aligned_columns_original):
-        unified_columns_info.append([col_details[0], col_details[1], aligned_column_types[i]])
-
-    schema_map = {}
-    for i, table_name in enumerate(table_names):
-        table_columns_map = {
-            col[1].lower(): col[2]
-            for col in unified_columns_info if col[0] == i
-        }
-        schema_map[table_name.lower()] = table_columns_map
+def export_to_single_sql_file(db_path, output_file, db_info, embedding_model, pool=None):
+    # --- 关键修复 1：定义一个绝对不会在数据中出现的分隔符 ---
+    SQL_DELIMITER = "\n--<SQL_COMMAND_SEPARATOR>--\n"
 
     conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    sql_buffer = StringIO()
+    try:
+        # 写入文件头和事务开始命令
+        sql_buffer.write(f"-- DB Export\n-- {datetime.datetime.now()}\n\n")
+        sql_buffer.write("BEGIN TRANSACTION;" + SQL_DELIMITER)
 
-    embedding_dim = embedding_model.get_sentence_embedding_dimension()
+        objects = conn.execute("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE type IN ('table', 'view', 'trigger', 'index') AND name NOT LIKE 'sqlite_%' ORDER BY type='table' DESC").fetchall()
+        table_objects = [obj for obj in objects if obj[0] == 'table' and obj[3]]
+        virtual_tables = set()
 
-    # 使用 'w' 模式清空并写入文件
-    with open(output_file, 'w', encoding='utf-8') as f:
-        for table_name in table_names:
-            table_name_lower = table_name.lower()
-            if table_name_lower not in schema_map: continue
-
-            try:
-                table_schema = schema_map.get(table_name_lower, {})
-                
-                # --- 【核心修复】检查表是否包含任何 TEXT 列 ---
-                text_columns_in_table = [
-                    col_name for col_name, col_type in table_schema.items() if 'TEXT' in col_type.upper()
-                ]
-
-                # 只有当表包含TEXT列时，才创建 VIRTUAL TABLE
-                if text_columns_in_table:
-                    # 生成 VIRTUAL TABLE DDL
-                    modified_create_sql = f"CREATE VIRTUAL TABLE \"{table_name}\" USING vec0(\n"
-                    column_definitions = []
-                    for col_name, col_type in table_schema.items():
-                        column_definitions.append(f"  {col_name} {col_type}")
-                        # 仅为TEXT列添加嵌入
-                        if 'TEXT' in col_type.upper():
-                            column_definitions.append(f"  {col_name}_embedding float[{embedding_dim}]")
-                    
-                    modified_create_sql += ",\n".join(column_definitions)
-                    modified_create_sql += "\n);"
-                    f.write(modified_create_sql + SQL_DELIMITER)
+        for _, name, _, sql in table_objects:
+            # 生成 DDL 语句
+            if name in db_info.get("semantic_rich_column", {}):
+                cursor = conn.cursor()
+                cursor.execute(f"PRAGMA table_info('{name}')")
+                cols_info = cursor.fetchall()
+                sem_cols = [c for c in db_info["semantic_rich_column"][name] if c.get('column_name') in {i[1] for i in cols_info}]
+                if sem_cols and (len(cols_info) + len(sem_cols) <= 16):
+                    sql_buffer.write(create_virtual_table_ddl(conn, name, db_info, embedding_model.get_sentence_embedding_dimension()) + ";" + SQL_DELIMITER)
+                    virtual_tables.add(name)
                 else:
-                    # 对于没有TEXT列的表，创建普通TABLE
-                    logging.info(f"Table '{table_name}' has no TEXT columns. Creating as a regular table.")
-                    cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
-                    original_sql_row = cursor.fetchone()
-                    if original_sql_row and original_sql_row[0]:
-                        f.write(original_sql_row[0] + ";" + SQL_DELIMITER)
-                    else:
-                        logging.warning(f"Could not find original CREATE statement for table '{table_name}'. Skipping DDL.")
-                        continue
+                    sql_buffer.write(sql + ";" + SQL_DELIMITER)
+            else:
+                sql_buffer.write(sql + ";" + SQL_DELIMITER)
 
-                cursor.execute(f'SELECT * FROM "{table_name}"')
-                col_names = [description[0] for description in cursor.description]
-                
-                all_rows = cursor.fetchall()
-                if not all_rows: continue
+        for _, table, _, _ in tqdm(table_objects, desc="Exporting data"):
+            # 生成 INSERT 语句
+            is_virtual = table in virtual_tables
+            cursor = conn.execute(f'SELECT * FROM "{table}"')
+            o_cols = [d[0] for d in cursor.description]
+            a_cols, e_cols = [], []
+            if is_virtual:
+                s_cols = [sanitize_identifier(c) for c in o_cols]
+                e_info = [c for c in db_info.get("semantic_rich_column", {}).get(table, []) if c.get('column_name') in o_cols]
+                e_cols = [c['column_name'] for c in e_info]
+                s_e_cols = [f"{sanitize_identifier(c)}_embedding" for c in e_cols]
+                a_cols = s_cols + s_e_cols
+            else:
+                a_cols = o_cols
+            header = f'INSERT INTO "{table}" ({", ".join(f"`{c}`" for c in a_cols)}) VALUES '
+            while True:
+                batch = cursor.fetchmany(5000)
+                if not batch: break
+                e_data = {}
+                if is_virtual and e_cols:
+                    for col in e_cols:
+                        c_idx = o_cols.index(col)
+                        c_vals = [str(r[c_idx]) if r[c_idx] is not None else "" for r in batch]
+                        embs = generate_embeddings_parallel(embedding_model, c_vals, pool=pool)
+                        e_data[col] = ['[' + ', '.join(map(str, e.tolist())) + ']' for e in embs]
+                rows = []
+                for i, row in enumerate(batch):
+                    vals = ["''" if v is None else sql_format_value(v) for v in row] if is_virtual else [sql_format_value(v) for v in row]
+                    if is_virtual:
+                        for col in e_cols: vals.append(f"'{e_data[col][i]}'")
+                    rows.append("(" + ", ".join(vals) + ")")
+                if rows:
+                    sql_buffer.write(header + ",\n".join(rows) + ";" + SQL_DELIMITER)
 
-                # 仅当表是虚拟表时才准备嵌入
-                if text_columns_in_table:
-                    texts_to_embed, text_col_indices = [], []
-                    for i, name in enumerate(col_names):
-                        # 使用原始 schema_map 来检查类型
-                        if 'TEXT' in schema_map.get(table_name_lower, {}).get(name.lower(), '').upper():
-                            text_col_indices.append(i)
-                    
-                    for row in all_rows:
-                        for idx in text_col_indices:
-                            texts_to_embed.append(str(row[idx]))
-                    
-                    embeddings = []
-                    if texts_to_embed:
-                        embeddings = embedding_model.encode_multi_process(texts_to_embed, pool=pool) if pool else embedding_model.encode(texts_to_embed)
-                    
-                    embedding_iter = iter(embeddings)
+        for type, _, tbl, sql in [o for o in objects if o[0] != 'table' and o[3]]:
+            # 生成其他语句
+            if type == 'index' and tbl in virtual_tables: continue
+            sql_buffer.write(sql + ";" + SQL_DELIMITER)
 
-                for row in all_rows:
-                    formatted_values = []
-                    new_col_names = []
-                    
-                    for i, val in enumerate(row):
-                        col_name = col_names[i]
-                        new_col_names.append(col_name)
-                        col_type = table_schema.get(col_name.lower(), 'TEXT')
-                        formatted_values.append(sql_format_value(val, col_type))
-                    
-                    # 仅为虚拟表添加嵌入向量值
-                    if text_columns_in_table:
-                        for idx in text_col_indices:
-                            col_name = col_names[idx]
-                            new_col_names.append(f"{col_name}_embedding")
-                            embedding_vector = next(embedding_iter)
-                            formatted_values.append(f"'{str(embedding_vector.tolist())}'")
-                    
-                    columns_str = ", ".join([f"{name}" for name in new_col_names])
-                    values_str = ", ".join(formatted_values)
-                    # 使用唯一的SQL分隔符
-                    f.write(f"INSERT INTO \"{table_name}\" ({columns_str}) VALUES ({values_str});" + SQL_DELIMITER)
-                
-            except Exception as e:
-                logging.error(f"Error processing table '{table_name}' in db '{db_id}': {e}", exc_info=True)
+        sql_buffer.write("COMMIT;" + SQL_DELIMITER)
 
-    conn.close()
-    logging.info(f"Successfully generated SQL script: {output_file}")
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(sql_buffer.getvalue())
+        return True
+    finally:
+        if conn: conn.close()
 
+def generate_database_script(db_path, output_file, embedding_model, table_json_path, pool=None):
+    try:
+        with open(table_json_path, 'r', encoding='utf-8') as f:
+            db_infos = json.load(f)
+    except Exception as e:
+        logging.error(f"Error reading JSON {table_json_path}: {e}")
+        return
+    db_id = os.path.splitext(os.path.basename(db_path))[0]
+    target_info = next((i for i in db_infos if i.get("db_id") == db_id), {})
+    if not export_to_single_sql_file(db_path, output_file, target_info, embedding_model, pool=pool):
+        logging.error(f"Export failed for {db_id}!")
 
-def build_vector_database(SQL_FILE: str, DB_FILE: str):
-    if os.path.exists(DB_FILE):
-        os.remove(DB_FILE)
+def build_vector_database(SQL_FILE, DB_FILE):
+    # --- 关键修复 2：使用唯一的、自定义的分隔符来分割命令 ---
+    SQL_DELIMITER = "\n--<SQL_COMMAND_SEPARATOR>--\n"
     
     conn = None
     try:
+        db_dir = os.path.dirname(DB_FILE)
+        os.makedirs(db_dir, exist_ok=True)
+        if os.path.exists(DB_FILE): os.remove(DB_FILE)
+            
         conn = sqlite3.connect(DB_FILE)
-        
         conn.enable_load_extension(True)
         sqlite_vec.load(conn)
-        logging.info("Successfully loaded sqlite-vec extension.")
-
         cursor = conn.cursor()
-
-        with open(SQL_FILE, 'r', encoding='utf-8') as f:
-            sql_script = f.read()
-
-        # --- 【健壮性提升】使用自定义分隔符来分割命令 ---
-        statements = [stmt.strip() for stmt in sql_script.split(SQL_DELIMITER) if stmt.strip()]
+        logging.info("Database connection opened and sqlite-vec extension loaded.")
         
         logging.info(f"Importing SQL from {SQL_FILE} using robust custom delimiter...")
-        for statement in statements:
+        with open(SQL_FILE, 'r', encoding='utf-8') as f:
+            sql_script = f.read()
+        
+        # 使用绝对可靠的唯一分隔符来分割
+        statements = sql_script.split(SQL_DELIMITER)
+        
+        for statement in tqdm(statements, desc="Executing SQL Statements"):
+            statement = statement.strip()
+            if not statement: continue
+            
             try:
-                # 每个 'statement' 已经是完整的命令，可以直接执行
+                # 语句已经是完整的，可以直接执行
                 cursor.execute(statement)
-            except sqlite3.OperationalError as e:
-                logging.error(f"Failed to execute statement: {statement[:200]}...")
-                logging.error(f"SQL execution failed: {e}")
+            except sqlite3.Error as e:
+                logging.error(f"Failed to execute statement: {statement[:500]}...")
                 raise e
 
-        conn.commit()
-        logging.info(f"Successfully built database: {DB_FILE}")
+        logging.info("✅ SQL script processed successfully.")
 
-    except Exception as e:
-        logging.error(f"An error occurred during database build: {e}")
-        raise e
+    except sqlite3.Error as e:
+        logging.error(f"SQL execution failed: {e}", exc_info=True)
+        raise
     finally:
         if conn:
             conn.close()

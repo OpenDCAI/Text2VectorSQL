@@ -8,7 +8,6 @@ import sqlite_vec
 from io import StringIO
 
 # ... 从 sanitize_identifier 到 sql_format_value 的所有函数保持不变 ...
-# (此处省略了这些函数的代码，请确保您文件中有它们)
 def sanitize_identifier(s: str) -> str:
     s = str(s).replace(' ', '_').replace('(', '').replace(')', '')
     s = re.sub(r'[^a-zA-Z0-9_]', '_', s)

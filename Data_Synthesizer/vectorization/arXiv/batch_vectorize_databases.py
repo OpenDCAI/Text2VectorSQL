@@ -5,6 +5,7 @@ from tqdm import tqdm
 import torch
 from sentence_transformers import SentenceTransformer
 import torchvision
+from typing import Optional
 
 os.makedirs("logging", exist_ok=True)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filename='logging/out.log', filemode='w')
@@ -19,12 +20,12 @@ except ImportError as e:
 from dotenv import load_dotenv
 load_dotenv()
 
-SOURCE_DB_ROOT = os.getenv("SOURCE_DB_ROOT")
-SQL_SCRIPT_DIR = os.getenv("SQL_SCRIPT_DIR")
-VECTOR_DB_ROOT = os.getenv("VECTOR_DB_ROOT")
-TABLE_JSON_PATH = os.getenv("TABLE_JSON_PATH")
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
-model_path = os.getenv("model_path", "/mnt/b_public/data/yaodongwen/model")
+SOURCE_DB_ROOT = "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/train/arxiv"
+SQL_SCRIPT_DIR = "./vector_sql"
+VECTOR_DB_ROOT = "./vector_databases"
+TABLE_JSON_PATH = '/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/arxiv/find_semantic_tables.json'
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+model_path = "/mnt/b_public/data/yaodongwen/model"
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 def load_completion_status(status_file):
@@ -37,12 +38,33 @@ def load_completion_status(status_file):
 def save_completion_status(status_file, completed_dbs_dict):
     with open(status_file, 'w', encoding='utf-8') as f: json.dump(completed_dbs_dict, f, indent=2)
 
+def find_database_file(base_path: str, db_id: str) -> Optional[str]:
+    """
+    Finds a database file, checking for .sqlite and then .db extensions.
+    Returns the full path if found, otherwise None.
+    """
+    # Check for .sqlite first
+    path_sqlite = os.path.join(base_path, f"{db_id}.sqlite")
+    if os.path.exists(path_sqlite):
+        return path_sqlite
+    
+    # If not found, check for .db
+    path_db = os.path.join(base_path, f"{db_id}.db")
+    if os.path.exists(path_db):
+        return path_db
+        
+    # If neither exists
+    return None
+
 def main():
     logging.info("--- Starting Batch Database Vectorization ---")
     if not all([SOURCE_DB_ROOT, SQL_SCRIPT_DIR, VECTOR_DB_ROOT, TABLE_JSON_PATH]):
         logging.critical("One or more required configurations are missing in .env. Please check (SOURCE_DB_ROOT, SQL_SCRIPT_DIR, VECTOR_DB_ROOT, TABLE_JSON_PATH).")
         sys.exit(1)
     
+    if not os.path.exists(SOURCE_DB_ROOT):
+        print(f"error: no source db: {SOURCE_DB_ROOT}")
+
     os.makedirs(SQL_SCRIPT_DIR, exist_ok=True)
     os.makedirs(VECTOR_DB_ROOT, exist_ok=True)
     status_file_path = os.path.join(VECTOR_DB_ROOT, "processing_status.json")
@@ -50,8 +72,21 @@ def main():
     
     model, pool = None, None
     try:
-        db_targets = [{'id': os.path.splitext(f)[0], 'path': os.path.join(SOURCE_DB_ROOT, f)} for f in os.listdir(SOURCE_DB_ROOT) if f.endswith(('.sqlite', '.db'))]
-        if not db_targets: return
+        db_targets = []
+        if os.path.exists(SOURCE_DB_ROOT):
+            for db_id in os.listdir(SOURCE_DB_ROOT):
+                db_dir = os.path.join(SOURCE_DB_ROOT, db_id)
+                if os.path.isdir(db_dir):
+                    # Call the helper function to find the database path
+                    db_path = find_database_file(db_dir, db_id)
+                    
+                    # If the helper found a file (either .sqlite or .db), its path will be returned
+                    if db_path:
+                        db_targets.append({'id': db_id, 'path': db_path})
+
+        if not db_targets: 
+            print(f"error: there is not file in {db_targets}")
+            return
             
         dbs_to_process = [target for target in db_targets if completed_dbs.get(target['id']) != 'db_built']
         if not dbs_to_process:

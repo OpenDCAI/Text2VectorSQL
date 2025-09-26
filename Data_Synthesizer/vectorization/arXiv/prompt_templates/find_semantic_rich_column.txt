@@ -38,7 +38,7 @@ You are an expert database analyst. Given a database schema in JSON format, your
 
   * Not Numerical or an Identifier. The column's content is primarily textual, not numerical data or identifiers.
 - A column is NOT to be considered semantically rich if any of the following exclusion rules apply:
-  * Specific Names. The column name is name, address.
+  * Specific Names. The column name is name, address. But if the sample of this column is long(more than 8 words), we think it is semantically rich column.
   * Non-descriptive Content. Despite being text, the data in table_samples represents non-descriptive information like codes, IDs, or simple labels.
 
 2. Output a JSON object where:

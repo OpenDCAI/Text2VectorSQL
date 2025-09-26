@@ -9,9 +9,10 @@ server:
 models:
   - name: "all-MiniLM-L6-v2"
     hf_model_path: "sentence-transformers/all-MiniLM-L6-v2"
+    local_model_path: "./models_cache/all-MiniLM-L6-v2"
     trust_remote_code: true
-    tensor_parallel_size: 1  # Adjust based on your number of GPUs
-    max_model_len: 255      # Max sequence length for the model
+    tensor_parallel_size: 8  # Adjust based on your number of GPUs
+    max_model_len: 256      # Max sequence length for the model
 
   # - name: "sentence-transformers/clip-ViT-B-32"
   #   hf_model_path: "sentence-transformers/clip-ViT-B-32"

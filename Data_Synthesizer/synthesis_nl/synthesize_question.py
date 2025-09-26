@@ -51,7 +51,7 @@ def save_to_cache(cache_file: str, key: str, value: str):
 # --- 修改：移除了 @lru_cache 装饰器，并重命名函数 ---
 def make_llm_call(model: str, prompt: str, api_url: str, api_key: str) -> str:
     """
-    实际执行 LLM API 调用的函数。
+    实际执行 LLM API 调用的函数，并增加了对返回结果的健壮性检查。
     """
     client = openai.OpenAI(
         api_key=api_key,
@@ -64,7 +64,17 @@ def make_llm_call(model: str, prompt: str, api_url: str, api_key: str) -> str:
             messages=[{"role": "user", "content": prompt}],
             temperature=0.8
         )
-        return response.choices[0].message.content
+        # --- 新增的健壮性检查 ---
+        # 1. 检查 response 对象是否存在
+        # 2. 检查 response.choices 列表是否存在且不为空
+        if response and response.choices and len(response.choices) > 0:
+            # 只有检查通过后，才安全地访问内容
+            return response.choices[0].message.content
+        else:
+            # 如果响应格式不正确，打印警告信息并返回空字符串
+            print(f"Warning: Received an invalid or empty response from API. Response: {response}")
+            return ""
+            
     except Exception as e:
         print(f"Error calling LLM API: {e}")
         return ""

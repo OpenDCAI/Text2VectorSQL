@@ -1,5 +1,5 @@
 #!/bin/bash
-export HF_ENDPOINT=https://hf-mirror.com
+# export HF_ENDPOINT=https://hf-mirror.com
 python server.py --config config.yaml
 
 # curl http://localhost:8000/health

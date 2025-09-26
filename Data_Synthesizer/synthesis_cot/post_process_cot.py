@@ -30,9 +30,8 @@ def get_embedding_from_server(text: str, server_url: str, model_name: str) -> li
 
 def preprocess_sql(sql: str, server_url: str, model_name: str, default_k=5) -> str:
     """
-    一个更健壮的SQL预处理器，采用两阶段处理来覆盖所有情况:
-    1. 优先处理所有 `lembed(...) AND k = ...` 的情况。
-    2. 然后处理剩余的 `lembed(...)` (通常是使用LIMIT或没有k的情况)。
+    [再次修正版]
+    修正了JSON格式，使其直接输出向量数组 "[]" 而不是对象 "{"vector": []}"
     """
     
     # --- 阶段一: 处理所有 `lembed(...) AND k = ...` 的标准情况 ---
@@ -46,10 +45,13 @@ def preprocess_sql(sql: str, server_url: str, model_name: str, default_k=5) -> s
 
     def replacer_with_k(match):
         text_to_embed = match.group(3)
-        k_value = int(match.group(5))
+        and_k_clause = match.group(4) 
+        
         vector = get_embedding_from_server(text_to_embed, server_url, model_name)
-        payload = {"vector": vector, "k": k_value}
-        return f"'{json.dumps(payload)}'"
+        # [修改] 直接将vector列表转为JSON数组字符串
+        vector_json_array = json.dumps(vector)
+        
+        return f"'{vector_json_array}' {and_k_clause}"
 
     processed_sql = pattern_with_k.sub(replacer_with_k, sql)
 
@@ -68,13 +70,17 @@ def preprocess_sql(sql: str, server_url: str, model_name: str, default_k=5) -> s
         def replacer_only_lembed(match):
             text_to_embed = match.group(2)
             vector = get_embedding_from_server(text_to_embed, server_url, model_name)
-            payload = {"vector": vector, "k": k_value} 
-            return f"'{json.dumps(payload)}'"
+            # [修改] 直接将vector列表转为JSON数组字符串
+            vector_json_array = json.dumps(vector)
+            
+            if not k_from_limit_match:
+                return f"'{vector_json_array}' AND k = {k_value}"
+            else:
+                return f"'{vector_json_array}'"
         
         processed_sql = pattern_only_lembed.sub(replacer_only_lembed, processed_sql)
 
     return processed_sql
-
 
 def parse_response(response):
     """从模型的响应文本中提取最后一个 SQL 代码块"""

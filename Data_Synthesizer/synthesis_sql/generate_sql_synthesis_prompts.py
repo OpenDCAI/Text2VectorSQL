@@ -208,7 +208,7 @@ def write_large_json(data: List[Dict], output_path: str, chunk_size: int = 500):
                 json.dump(item, f, ensure_ascii=False, indent=2)
         f.write(']')
 
-def main_generate_sql_synthesis_prompts(db_path="./results/vector_databases_toy",prompt_tpl_path="./prompt_templates/sql_synthesis_prompt.txt",functions_path="./prompt_templates/sqlite_funcs.json",output_dir="./prompts",output_name="sql_synthesis_prompts.json",embedding_model="all-MiniLM-L6-v2"):
+def main_generate_sql_synthesis_prompts(db_path="./results/vector_databases_toy",prompt_tpl_path="./prompt_templates/sql_synthesis_prompt.txt",functions_path="./prompt_templates/sqlite_funcs.json",output_dir="./prompts",output_name="sql_synthesis_prompts.json",embedding_model="all-MiniLM-L6-v2",sql_num=6):
     random.seed(42)
 
     # 目录配置 --------------------------------------------------
@@ -261,8 +261,12 @@ def main_generate_sql_synthesis_prompts(db_path="./results/vector_databases_toy"
             image_summary = compute_image_column(db_file)
 
             total_rich_cols = summary.get("total_num", 0) + image_summary.get("total_num", 0)
+
+            print(f"total semanticly rich columns number is {total_rich_cols}")
+            print(f"we will generate {sql_num} sql prompt for each semanticly rich column")
+            
             # 你可以调整这里的数值，对每一个语义丰富的列生成6条对应的不同sql语句
-            loop_times = max(0, 6 * total_rich_cols)
+            loop_times = max(0, sql_num * total_rich_cols)
 
             for _ in range(loop_times):
                 complexity = random.choice(

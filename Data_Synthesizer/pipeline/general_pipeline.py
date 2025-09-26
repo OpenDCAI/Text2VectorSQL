@@ -1,3 +1,7 @@
+# 这个文件是通用pipeline，可以用来生成训练数据（你需要先准备好向量数据库）
+# main文件中放了所有算子，你可以选择性地使用它们。
+# 如果是多模态的wiki数据集的处理，它比其他数据集要多一个build_final_db_with_images算子
+# 如果是训练数据，可以把cot相关的算子也加进来
 import yaml
 import os
 from pprint import pprint
@@ -5,7 +9,7 @@ from pathlib import Path
 import sys
 
 # 配置hugging face代理
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+# os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # 获取当前文件的绝对路径
 current_file_path = os.path.abspath(__file__)
@@ -36,6 +40,8 @@ from synthesis_cot.post_process_cot import post_process_cot
 from synthesis_sql.generate_sql_synthesis_prompts import main_generate_sql_synthesis_prompts
 from synthesis_sql.synthesize_sql import run_sql_synthesis
 from synthesis_sql.post_process_sqls import post_process_sqls
+
+from vectorization.image_embedding_adder import build_final_db_with_images
 
 # --------------------------------------------------------------------
 # 安装提示 (Installation Tip)
@@ -145,7 +151,7 @@ def create_directory_with_os(directory_name: str):
 def main():
     try:
         # 只需要修改这里，就可以加载不同的数据集配置！
-        DATASET_TO_LOAD = "synthesis_data" 
+        DATASET_TO_LOAD = "spider" 
         # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
         
         config = load_config(database="sqlite", dataset=DATASET_TO_LOAD)
@@ -187,49 +193,67 @@ def main():
     except (FileNotFoundError, KeyError, yaml.YAMLError) as e:
         print(f"错误: 配置加载失败 - {e}")
 
-    # # 开始执行pipelinex
+    # 开始执行pipeline
+    # print("################################################")
+    # print("将每张表格的两行样本数据填入schema")
+    # process_toy_dataset(config.paths.source_db_root,config.paths.result_path,config.paths.enhance_json_name)
+    # enhance_json_path = os.path.join(config.paths.result_path,config.paths.enhance_json_name)
 
     # print("################################################")
-    # print("生成合成sql提示词")
-    # main_generate_sql_synthesis_prompts(config.paths.vector_db_root,config.paths.prompt_tpl_path,config.paths.functions_path,config.paths.sql_prompts_output_dir,config.paths.sql_prompts_output_name,config.services.openai.get('embedding_model_name'))
+    # print("查找所有数据库中语义丰富的列，并计入schema")
+    # main_find_rich_semantic_column(config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),enhance_json_path,config.paths.find_semantic_table_json,config.parameters.no_parallel_find_semantic_rich,config.paths.find_semantic_prompt_template_path)
 
     # print("################################################")
-    # print("合成sql")
-    # run_sql_synthesis(config.paths.synthesize_sql_input_file,config.paths.synthesize_sql_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),True)
-
-    # print("################################################")   
-    # print("过滤可以成功运行的sql")
-    # post_process_sqls(config.paths.vector_db_root,config.paths.post_sql_output_path,config.paths.post_sql_llm_json_path,"http://127.0.0.1:8000/embed",config.services.openai.get('embedding_model_name'),config.paths.cache_file_path_sql,8,30)
+    # print("为语义丰富的列生成embedding，并构建向量数据库")
+    # main_batch_vectorize_databases(config.paths.source_db_root,config.paths.sql_script_dir,config.paths.vector_db_root,config.paths.find_semantic_table_json,config.services.openai.get('embedding_model_name'),config.paths.EMBED_MODEL_PATH_CACHE)
 
     # print("################################################")
-    # print("生成合成question提示词")
-    # sqlite_generate_question_synthesis_prompts(config.paths.vector_db_root,config.paths.sql_infos_path,config.paths.question_synthesis_template_path,config.paths.question_prompts_output_json_path)
+    # print("为Image表格中的图片添加embedding")
+    # build_final_db_with_images(config.paths.intermediate_sql_path,config.paths.final_image_vec_db_path,config.paths.target_vec_db_path,config.paths.table_to_modify,config.paths.model_name_or_path,config.paths.model_cache_directory,config.paths.article_table,config.paths.image_root_directory)
 
     # print("################################################")
-    # print("合成question")
-    # synthesize_questions(config.paths.synthesize_question_input_file,config.paths.synthesize_question_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.max_workers,config.paths.cache_file_path_question)
+    # print("为向量数据库更新schema，并且添加ddls字段，便于生成cot")
+    # generate_vector_schema(config.paths.vector_db_root,config.paths.find_semantic_table_json,config.paths.schema_output_dir,config.paths.schema_output_json)
 
-    # print("################################################")
-    # print("多数投票表决选取合适的question")
-    # post_process_questions(config.paths.post_process_questions_input_dataset_path,config.paths.post_process_questions_output_file,"http://127.0.0.1:8000/embed",config.services.openai.get('embedding_model_name'))
+    print("################################################")
+    print("生成合成sql提示词")
+    main_generate_sql_synthesis_prompts(config.paths.vector_db_root,config.paths.prompt_tpl_path,config.paths.functions_path,config.paths.sql_prompts_output_dir,config.paths.sql_prompts_output_name,config.services.openai.get('embedding_model_name'),config.parameters.sql_number)
 
-    # print("################################################")
-    # print("为每个问题生成多个sql候选")
-    # synthesize_candidate(config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.num_candidates,config.parameters.max_workers,config.paths.synthesiaze_candidate_input_file,config.paths.synthesiaze_candidate_output_file)
+    print("################################################")
+    print("合成sql")
+    run_sql_synthesis(config.paths.synthesize_sql_input_file,config.paths.synthesize_sql_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.paths.cache_file_path_sql,True)
+
+    print("################################################")   
+    print("过滤可以成功运行的sql")
+    post_process_sqls(config.paths.vector_db_root,config.paths.post_sql_output_path,config.paths.post_sql_llm_json_path,"http://127.0.0.1:8000/embed",config.services.openai.get('embedding_model_name'),8,30)
+
+    print("################################################")
+    print("生成合成question提示词")
+    sqlite_generate_question_synthesis_prompts(config.paths.vector_db_root,config.paths.sql_infos_path,config.paths.question_synthesis_template_path,config.paths.question_prompts_output_json_path)
+
+    print("################################################")
+    print("合成question")
+    synthesize_questions(config.paths.synthesize_question_input_file,config.paths.synthesize_question_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.max_workers,config.paths.cache_file_path_question)
+
+    print("################################################")
+    print("多数投票表决选取合适的question")
+    post_process_questions(config.paths.post_process_questions_input_dataset_path,config.paths.post_process_questions_output_file,"http://127.0.0.1:8000/embed",config.services.openai.get('embedding_model_name'))
+
+    print("################################################")
+    print("为每个问题生成多个sql候选")
+    synthesize_candidate(config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.num_candidates,config.parameters.max_workers,config.paths.synthesiaze_candidate_input_file,config.paths.synthesiaze_candidate_output_file)
 
     # print("################################################")
     # print("生成合成cot提示词")
     # generate_cot_prompts(config.paths.gene_cot_prompts_dataset_json_path,config.paths.gene_cot_prompts_tables_json_path,config.paths.gene_cot_prompts_prompt_tamplate_path,config.paths.gene_cot_prompts_output_prompt_path)
 
-    print("################################################")
-    print("合成cot")
-    synthesize_cot(config.paths.gene_cot_prompts_output_prompt_path,config.paths.synthesize_cot_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.max_workers,config.paths.cache_file_path_cot,5,0.8)
+    # print("################################################")
+    # print("合成cot")
+    # synthesize_cot(config.paths.gene_cot_prompts_output_prompt_path,config.paths.synthesize_cot_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.max_workers,config.paths.cache_file_path_cot,5,0.8)
 
-    print("################################################")
-    print("选择合适的cot，并且过滤可以成功运行的sql")
-    post_process_cot(config.paths.post_process_cot_results_path,config.paths.post_process_cot_db_dir,config.paths.post_process_cot_output_dir,"http://127.0.0.1:8000/embed",config.services.openai.get('embedding_model_name'))
-
-    
+    # print("################################################")
+    # print("选择合适的cot，并且过滤可以成功运行的sql")
+    # post_process_cot(config.paths.post_process_cot_results_path,config.paths.post_process_cot_db_dir,config.paths.post_process_cot_output_dir,"http://127.0.0.1:8001/embed","CLIP-ViT-B-32-laion2B-s34B-b_79K")
 
 if __name__ == "__main__":
     main()
