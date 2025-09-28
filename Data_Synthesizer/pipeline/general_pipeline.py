@@ -9,7 +9,11 @@ from pathlib import Path
 import sys
 
 # 配置hugging face代理
-# os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+os.environ['HF_ENDPOINT'] = 'https://alpha.hf-mirror.com'
+
+# 只需要修改这里，就可以加载不同的数据集配置！
+DATASET_TO_LOAD = "wikipedia_multimodal" 
+# DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
 
 # 获取当前文件的绝对路径
 current_file_path = os.path.abspath(__file__)
@@ -150,10 +154,6 @@ def create_directory_with_os(directory_name: str):
 
 def main():
     try:
-        # 只需要修改这里，就可以加载不同的数据集配置！
-        DATASET_TO_LOAD = "spider" 
-        # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
-        
         config = load_config(database="sqlite", dataset=DATASET_TO_LOAD)
 
         print(f"--- 成功加载 '{DATASET_TO_LOAD}' 数据集的配置! ---")
@@ -193,27 +193,42 @@ def main():
     except (FileNotFoundError, KeyError, yaml.YAMLError) as e:
         print(f"错误: 配置加载失败 - {e}")
 
-    # 开始执行pipeline
-    # print("################################################")
-    # print("将每张表格的两行样本数据填入schema")
-    # process_toy_dataset(config.paths.source_db_root,config.paths.result_path,config.paths.enhance_json_name)
-    # enhance_json_path = os.path.join(config.paths.result_path,config.paths.enhance_json_name)
+    # #开始执行pipeline
 
+    # #如果数据库没有tables.json文件，那么你就必须运行这个代码为数据库生成tables.json文件
     # print("################################################")
-    # print("查找所有数据库中语义丰富的列，并计入schema")
-    # main_find_rich_semantic_column(config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),enhance_json_path,config.paths.find_semantic_table_json,config.parameters.no_parallel_find_semantic_rich,config.paths.find_semantic_prompt_template_path)
+    # print("为数据库生成schema")
+    # generate_schema(config.paths.source_db_root, config.paths.generate_tables_json_path)
 
-    # print("################################################")
-    # print("为语义丰富的列生成embedding，并构建向量数据库")
-    # main_batch_vectorize_databases(config.paths.source_db_root,config.paths.sql_script_dir,config.paths.vector_db_root,config.paths.find_semantic_table_json,config.services.openai.get('embedding_model_name'),config.paths.EMBED_MODEL_PATH_CACHE)
 
+
+
+    print("################################################")
+    print("将每张表格的两行样本数据填入schema")
+    process_toy_dataset(config.paths.source_db_root,config.paths.result_path,config.paths.enhance_json_name)
+
+    print("################################################")
+    print("查找所有数据库中语义丰富的列，并计入schema")
+    enhance_json_path = os.path.join(config.paths.result_path,config.paths.enhance_json_name)
+    main_find_rich_semantic_column(config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),enhance_json_path,config.paths.find_semantic_table_json,config.parameters.no_parallel_find_semantic_rich,config.paths.find_semantic_prompt_template_path)
+
+    print("################################################")
+    print("为语义丰富的列生成embedding，并构建向量数据库")
+    main_batch_vectorize_databases(config.paths.source_db_root,config.paths.sql_script_dir,config.paths.vector_db_root,config.paths.find_semantic_table_json,config.services.openai.get('embedding_model_name'),config.paths.EMBED_MODEL_PATH_CACHE)
+
+
+
+    # # 这个算子只有wiki数据库需要
     # print("################################################")
     # print("为Image表格中的图片添加embedding")
     # build_final_db_with_images(config.paths.intermediate_sql_path,config.paths.final_image_vec_db_path,config.paths.target_vec_db_path,config.paths.table_to_modify,config.paths.model_name_or_path,config.paths.model_cache_directory,config.paths.article_table,config.paths.image_root_directory)
 
-    # print("################################################")
-    # print("为向量数据库更新schema，并且添加ddls字段，便于生成cot")
-    # generate_vector_schema(config.paths.vector_db_root,config.paths.find_semantic_table_json,config.paths.schema_output_dir,config.paths.schema_output_json)
+
+
+
+    print("################################################")
+    print("为向量数据库更新schema，并且添加ddls字段，便于生成cot")
+    generate_vector_schema(config.paths.vector_db_root,config.paths.find_semantic_table_json,config.paths.schema_output_dir,config.paths.schema_output_json)
 
     print("################################################")
     print("生成合成sql提示词")
@@ -243,6 +258,10 @@ def main():
     print("为每个问题生成多个sql候选")
     synthesize_candidate(config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.num_candidates,config.parameters.max_workers,config.paths.synthesiaze_candidate_input_file,config.paths.synthesiaze_candidate_output_file)
 
+
+
+
+    # #下面的算子只有训练数据集需要
     # print("################################################")
     # print("生成合成cot提示词")
     # generate_cot_prompts(config.paths.gene_cot_prompts_dataset_json_path,config.paths.gene_cot_prompts_tables_json_path,config.paths.gene_cot_prompts_prompt_tamplate_path,config.paths.gene_cot_prompts_output_prompt_path)

@@ -3,7 +3,7 @@
 import sqlite3, datetime, traceback, json, os, re
 from tqdm import tqdm
 import logging
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, models
 import sqlite_vec
 from io import StringIO
 
@@ -21,6 +21,33 @@ def type_convert(t: str) -> str:
     if "INT" in t or "NUMBER" in t: return 'INTEGER'
     if any(k in t for k in ["REAL", "NUMERIC", "DECIMAL", "FLOAT", "DOUBLE"]): return 'FLOAT'
     return 'TEXT'
+
+def get_model_dim(model):
+    # 假设 model 是已经加载好的 SentenceTransformer 实例
+    embedding_dim = None
+
+    # 首先，判断模型的第一个模块是否为 CLIPModel
+    if isinstance(model[0], models.CLIPModel):
+        print("检测到是 CLIP 模型，正在从配置中读取维度...")
+        # model[0] 是 CLIPModel 模块
+        # model[0].model 是底层的 Hugging Face CLIPModel
+        # model[0].model.text_model.config 是文本编码器的配置
+        embedding_dim = model[0].model.text_model.config.projection_dim
+    else:
+        print("检测到是标准模型，使用官方API获取维度...")
+        # 对于标准模型，官方方法通常有效
+        embedding_dim = model.get_sentence_embedding_dimension()
+
+    if embedding_dim is not None:
+        print(f"从配置中确定模型维度是: {embedding_dim}")
+        return embedding_dim
+    else:
+        try:
+            dummy_embedding = model.encode("test")
+            return dummy_embedding.shape[-1]
+        except Exception as e:
+            raise RuntimeError(f"严重错误：两种方法均无法确定模型维度: {e}")
+
 
 def create_virtual_table_ddl(conn, table_name, db_info, vec_dim):
     cursor = conn.cursor()
@@ -70,7 +97,7 @@ def export_to_single_sql_file(db_path, output_file, db_info, embedding_model, po
                 cols_info = cursor.fetchall()
                 sem_cols = [c for c in db_info["semantic_rich_column"][name] if c.get('column_name') in {i[1] for i in cols_info}]
                 if sem_cols and (len(cols_info) + len(sem_cols) <= 16):
-                    sql_buffer.write(create_virtual_table_ddl(conn, name, db_info, embedding_model.get_sentence_embedding_dimension()) + ";" + SQL_DELIMITER)
+                    sql_buffer.write(create_virtual_table_ddl(conn, name, db_info, get_model_dim(embedding_model)) + ";" + SQL_DELIMITER)
                     virtual_tables.add(name)
                 else:
                     sql_buffer.write(sql + ";" + SQL_DELIMITER)

@@ -3,7 +3,8 @@
 import os, sys, logging, json
 from tqdm import tqdm
 import torch
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, models
+from transformers import AutoConfig
 import torchvision
 from typing import Optional
 
@@ -50,6 +51,37 @@ def find_database_file(base_path: str, db_id: str) -> Optional[str]:
     # If neither exists
     return None
 
+def load_universal_sentence_transformer(model_name: str, cache_folder: str, device: str = 'cpu') -> SentenceTransformer:
+    """
+    加载一个 SentenceTransformer 模型，能自动兼容处理标准的 Transformer 模型和 CLIP 模型。
+
+    Args:
+        model_name (str): 需要加载的模型名称或路径 (例如 "all-MiniLM-L6-v2" 或 "openai/clip-vit-base-patch32")。
+        cache_folder (str): 用于缓存下载的模型的文件夹路径。
+        device (str, optional): 加载模型的设备 ('cpu', 'cuda', etc.)。默认为 'cpu'。
+
+    Returns:
+        SentenceTransformer: 初始化完成的模型实例。
+    """
+    try:
+        config = AutoConfig.from_pretrained(model_name, cache_dir=cache_folder)
+        is_clip_model = 'clip' in getattr(config, 'model_type', '').lower()
+    except Exception as e:
+        logging.warning(f"无法加载模型 '{model_name}' 的配置. 将基于模型名称进行判断。错误: {e}")
+        is_clip_model = 'clip' in model_name.lower()
+
+    if is_clip_model:
+        logging.info(f"正在以 CLIP 模型方式加载: '{model_name}'")
+        clip_model_wrapper = models.CLIPModel(model_name)
+        
+        # 外层的 SentenceTransformer 会处理缓存，所以这里 cache_folder 参数是必须的
+        model = SentenceTransformer(modules=[clip_model_wrapper], device=device, cache_folder=cache_folder)
+    else:
+        logging.info(f"正在以标准模型方式加载: '{model_name}'")
+        model = SentenceTransformer(model_name, device=device, cache_folder=cache_folder)
+        
+    return model
+
 def main_batch_vectorize_databases(
         SOURCE_DB_ROOT,
         SQL_SCRIPT_DIR,
@@ -95,7 +127,7 @@ def main_batch_vectorize_databases(
             return
 
         if any(completed_dbs.get(target['id']) != 'sql_generated' for target in dbs_to_process):
-            model = SentenceTransformer(EMBEDDING_MODEL_NAME, device='cpu', cache_folder=model_path)
+            model = load_universal_sentence_transformer(EMBEDDING_MODEL_NAME, model_path)
             if torch.cuda.is_available(): pool = model.start_multi_process_pool()
 
         for target in tqdm(db_targets, desc="Overall Progress"):

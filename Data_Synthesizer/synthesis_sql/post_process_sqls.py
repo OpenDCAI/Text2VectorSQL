@@ -8,6 +8,7 @@
 """
 import os, re, sys, time, json, multiprocessing as mp, traceback
 from typing import List, Dict, Tuple, Any
+import logging
 
 # ### 新增 ### - 引入 requests 库用于HTTP通信
 import requests
@@ -117,6 +118,9 @@ def _worker_processed(idx: int, db_id: str, original_sql: str, processed_sql: st
                       timeout: int, db_dir: str):
     """为已处理SQL设计的worker，不执行任何网络请求。"""
     db_path = os.path.join(db_dir, db_id, db_id + ".sqlite")
+    db_path_final = os.path.join(db_dir, db_id, db_id + "_final.sqlite")
+    if os.path.exists(db_path_final):
+        db_path = db_path_final
     try:
         args = (processed_sql, db_path)
         rows, col_cnt = func_timeout(timeout, execute_sql_simple, args=args)
@@ -219,11 +223,11 @@ def analyze_col_cnt(sql, db_path):
             columns = cursor.description
             if columns:
                 col_count = len(columns)
-                logger.debug(f"通过 LIMIT 0 查询检测到 {col_count} 列")
+                logging.debug(f"通过 LIMIT 0 查询检测到 {col_count} 列")
                 return col_count
             
         except sqlite3.Error as e:
-            logger.warning(f"数据库查询失败: {e}")
+            logging.warning(f"数据库查询失败: {e}")
             # 如果数据库查询失败，使用静态分析
             return _static_analyze_columns(cleaned_sql)
             
@@ -231,7 +235,7 @@ def analyze_col_cnt(sql, db_path):
             conn.close()
             
     except Exception as e:
-        logger.error(f"列数分析失败: {e}")
+        logging.error(f"列数分析失败: {e}")
         return _static_analyze_columns(sql)
 
 def _static_analyze_columns(sql):
@@ -258,7 +262,7 @@ def _static_analyze_columns(sql):
         # 处理 SELECT * 的情况
         if select_clause.strip() == '*':
             # 尝试从 FROM 子句推断表结构（简化处理）
-            logger.debug("检测到 SELECT *，返回估计列数")
+            logging.debug("检测到 SELECT *，返回估计列数")
             return 5  # 默认估计值
             
         # 分割列，处理括号内的内容
@@ -267,11 +271,11 @@ def _static_analyze_columns(sql):
         # 过滤掉空的列
         columns = [col.strip() for col in columns if col.strip()]
         
-        logger.debug(f"静态分析检测到 {len(columns)} 列: {columns}")
+        logging.debug(f"静态分析检测到 {len(columns)} 列: {columns}")
         return len(columns)
         
     except Exception as e:
-        logger.error(f"静态列数分析失败: {e}")
+        logging.error(f"静态列数分析失败: {e}")
         return -1
 
 def _extract_main_select(sql):
@@ -384,14 +388,14 @@ def fix_sql_syntax_errors(sql, error_msg):
             table_match = re.search(r"no such table:\s*(['\"]?)(\w+)\1", error_lower)
             if table_match:
                 missing_table = table_match.group(2)
-                logger.info(f"检测到缺失表: {missing_table}")
+                logging.info(f"检测到缺失表: {missing_table}")
                 # 这里可以添加表名映射逻辑
                 
         elif 'no such column' in error_lower:
             col_match = re.search(r"no such column:\s*(['\"]?)(\w+\.?\w*)\1", error_lower)
             if col_match:
                 missing_col = col_match.group(2)
-                logger.info(f"检测到缺失列: {missing_col}")
+                logging.info(f"检测到缺失列: {missing_col}")
                 # 尝试修复列名
                 fixed_sql = _fix_column_names(fixed_sql, missing_col)
                 
@@ -411,11 +415,11 @@ def fix_sql_syntax_errors(sql, error_msg):
         elif 'syntax error' in error_lower:
             fixed_sql = _fix_parentheses(fixed_sql)
             
-        logger.debug(f"SQL 修复尝试: {sql[:100]}... -> {fixed_sql[:100]}...")
+        logging.debug(f"SQL 修复尝试: {sql[:100]}... -> {fixed_sql[:100]}...")
         return fixed_sql
         
     except Exception as e:
-        logger.error(f"SQL 修复过程出错: {e}")
+        logging.error(f"SQL 修复过程出错: {e}")
         return sql
 
 def _fix_column_names(sql, missing_col):
