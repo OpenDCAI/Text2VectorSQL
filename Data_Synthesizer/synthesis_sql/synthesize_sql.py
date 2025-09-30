@@ -86,8 +86,7 @@ def parse_response(response):
 # --- 修改：整合了新的缓存逻辑 ---
 def llm_inference(
     model: str, 
-    prompts: list, 
-    db_ids: list, 
+    items: list, 
     api_url: str, 
     api_key: str, 
     cache_file_path: str, # 新增缓存文件路径参数
@@ -102,18 +101,18 @@ def llm_inference(
     print(f"Loaded {len(cache)} items from cache file: {cache_file_path}")
 
     # 2. 筛选出需要新处理的任务
-    prompts_to_process = []
-    # 创建 prompt -> db_id 的映射，方便后续使用
-    prompt_to_db_id = dict(zip(prompts, db_ids))
+    items_to_process = []
 
-    for prompt in prompts:
-        if prompt not in cache:
-            prompts_to_process.append(prompt)
+    for item in items:
+        # 假设每个 item 都包含 'sql_synthesis_prompt' 键
+        if item.get("prompt") not in cache:
+            items_to_process.append(item)
     
-    print(f"Total prompts: {len(prompts)}, To process: {len(prompts_to_process)}")
+    print(f"Total items: {len(items)}, To process: {len(items_to_process)}")
 
     # 3. 定义单个任务的处理函数
-    def process_item(prompt):
+    def process_item(item):
+        prompt = item["prompt"]
         # 调用 API
         response = make_llm_call(model, prompt, api_url, api_key)
         # 成功后立刻写入缓存
@@ -122,29 +121,30 @@ def llm_inference(
         return prompt, response
 
     # 4. 执行需要处理的任务（并行或顺序）
-    if prompts_to_process:
+    if items_to_process:
         if parallel:
             with ThreadPoolExecutor(max_workers=32) as executor:
                 # 使用 list 包装 tqdm 以立即显示进度条
                 results_iterator = list(tqdm(
-                    executor.map(process_item, prompts_to_process),
-                    total=len(prompts_to_process),
+                    executor.map(process_item, items_to_process),
+                    total=len(items_to_process),
                     desc="Generating responses"
                 ))
                 # 将新结果更新到内存缓存中
                 for prompt, response in results_iterator:
                     cache[prompt] = response
         else:
-            for prompt in tqdm(prompts_to_process, desc="Generating responses"):
+            for prompt in tqdm(items_to_process, desc="Generating responses"):
                 _, response = process_item(prompt)
                 cache[prompt] = response
     
     # 5. 组装最终结果
     final_results = []
-    for prompt, db_id in zip(prompts, db_ids):
+    for item in items:
+        prompt = item["prompt"]
         final_results.append({
             "prompt": prompt,
-            "db_id": db_id,
+            "db_id": item["db_id"],
             "response": cache.get(prompt, "") # 从更新后的缓存中获取结果
         })
 
@@ -180,13 +180,9 @@ def run_sql_synthesis(
     
     input_dataset = json.load(open(input_file, encoding="utf-8"))
     
-    db_ids = [data["db_id"] for data in input_dataset]
-    prompts = [data["prompt"] for data in input_dataset]
-    
     results = llm_inference(
         model=model_name,
-        prompts=prompts,
-        db_ids=db_ids,
+        items=input_dataset,
         api_url=api_url,
         api_key=api_key,
         cache_file_path=cache_file_path, # 传递缓存路径
