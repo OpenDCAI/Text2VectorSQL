@@ -49,7 +49,7 @@ def save_to_cache(cache_file: str, key: str, value: str):
         with open(cache_file, 'a', encoding='utf-8') as f:
             f.write(json.dumps(record, ensure_ascii=False) + '\n')
 
-def make_llm_call(model: str, prompt: str, api_url: str, api_key: str) -> str:
+def make_llm_call_openai(model: str, prompt: str, api_url: str, api_key: str) -> str:
     """
     实际执行 LLM API 调用的函数。
     """
@@ -69,6 +69,32 @@ def make_llm_call(model: str, prompt: str, api_url: str, api_key: str) -> str:
         print(f"Error calling LLM API: {str(e)}")
         return ""
 
+def make_llm_call_vllm(model: str, prompt: str, api_url: str, api_key: str) -> str:
+    """
+    实际执行 LLM API 调用的函数。
+    此版本经过修改，专门用于连接本地 vLLM OpenAI 兼容服务器。
+    """
+    # 修改点 1: 初始化 OpenAI 客户端，强制指向本地 vLLM 地址
+    # api_key 对于本地服务是必需的，但内容无所谓，随便给一个非空字符串
+    # base_url 硬编码或通过环境变量传入你的 vLLM 服务器地址
+    client = OpenAI(
+        api_key=api_key, # vLLM 不需要 key，但库要求有，所以可以传 "none" 或任何字符串
+        base_url=api_url # 这个 URL 必须指向你的 vLLM 服务，例如 "http://localhost:8000/v1"
+    )
+    
+    try:
+        # 修改点 2: 'model' 参数现在必须与 vLLM 启动时加载的模型路径完全一致
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.8
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        # 保持错误处理不变
+        print(f"Error calling local vLLM API: {str(e)}")
+        return ""
+    
 def parse_response(response):
     pattern = r"```sql\s*(.*?)\s*```"
     
@@ -88,7 +114,8 @@ def llm_inference(
     api_url: str,
     api_key: str,
     cache_file_path: str,
-    parallel: bool = True
+    parallel: bool = True,
+    use_vllm: bool = False
 ) -> list:
     """
     使用持久化磁盘缓存生成 LLM 响应。
@@ -113,7 +140,11 @@ def llm_inference(
     # 修改点：处理函数现在接收整个 item 对象
     def process_item(item):
         prompt = item["sql_synthesis_prompt"]
-        response = make_llm_call(model, prompt, api_url, api_key)
+        if use_vllm:
+            response = make_llm_call_vllm(model, prompt, api_url, api_key)
+        else:
+            response = make_llm_call_openai(model, prompt, api_url, api_key)
+
         if response:
             save_to_cache(cache_file_path, prompt, response)
         return prompt, response
@@ -156,7 +187,8 @@ def run_sql_synthesis(
     api_key: str,
     api_url: str,
     cache_file_path: str,
-    parallel: bool
+    parallel: bool,
+    use_vllm: bool
 ):
     """
     主逻辑函数，现在包含缓存路径。
@@ -185,7 +217,8 @@ def run_sql_synthesis(
         api_url=api_url,
         api_key=api_key,
         cache_file_path=cache_file_path,
-        parallel=parallel
+        parallel=parallel,
+        use_vllm=use_vllm
     )
 
     with open(output_file, "w", encoding="utf-8") as f:
@@ -219,5 +252,6 @@ if __name__ == '__main__':
         api_key=api_key_env,
         api_url=api_url_env,
         cache_file_path=opt.cache_file,
-        parallel=parallel_execution
+        parallel=parallel_execution,
+        use_vllm=True
     )

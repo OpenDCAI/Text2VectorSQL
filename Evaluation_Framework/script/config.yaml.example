@@ -9,6 +9,7 @@ sqlite:
     services: &common_services
       vllm:
         api_url: "http://127.0.0.1:8000/v1"
+        API_KEY: "none"
         model_name: "/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct"
       
       openai:
@@ -35,6 +36,7 @@ sqlite:
 
     parameters: &common_parameters
       dataset_backend: "sqlite"
+      use_vllm: False #True则使用openai服务，否则使用VLLM服务
       max_workers: 32
       no_parallel: false
       num_cpus: 10
