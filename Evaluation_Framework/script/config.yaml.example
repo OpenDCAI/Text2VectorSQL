@@ -1,0 +1,114 @@
+# ====================================================================
+# 通用数据库配置 (Universal Database Configuration)
+# ====================================================================
+sqlite:
+  # ====================================================================
+  # 数据集: toy_spider
+  # ====================================================================
+  toy_spider:
+    services: &common_services
+      vllm:
+        api_url: "http://127.0.0.1:8000/v1"
+        model_name: "/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct"
+      
+      openai:
+        api_key: &common_api_key "sk-xxxx"
+        base_url: "http://123.129.219.111:3000/v1"
+        llm_model_name: "gpt-4o"
+        embedding_model_name: "all-MiniLM-L6-v2"
+
+    # ------------------------------------------------------------------
+    # 路径配置 - 在这里使用锚点 (&) 定义一个可复用的代码块
+    # ------------------------------------------------------------------
+    paths: &common_paths # <-- (1) 使用 &common_paths 定义锚点
+      input_file_to_id: "../../Data_Synthesizer/pipeline/sqlite/results/toy_spider/candidate_sql.json"
+      dataset_json_path: "../sqlite/results/toy_spider/candidate_sql_query_id.json"
+      ground_truth_output_path: "../ground_truth.json"
+      tables_json_path: "../../Data_Synthesizer/pipeline/sqlite/results/toy_spider/embedding_table_vector.json"
+      prompt_tamplate_path: "../prompt_templates/sql_generate_prompt_template.txt"
+      output_prompt_path: "../sqlite/prompts/sql_generate_prompts.json"
+      database_note_prompt_path: "../prompt_templates/sqlite_vec_note_prompt.txt"
+
+      sql_prompt_file_path: "../sqlite/prompts/sql_generate_prompts.json"
+      eval_input_path: "../eval_queries.json"
+      cache_file_path_sql: "../cache/sqlite/synthesis_sql_cache.jsonl"
+
+    parameters: &common_parameters
+      dataset_backend: "sqlite"
+      max_workers: 32
+      no_parallel: false
+      num_cpus: 10
+      sql_exec_timeout: 60
+      num_candidates: 5
+
+  # ====================================================================
+  # 合成数据: synthesis_data
+  # ====================================================================
+  synthesis_data:
+    services: *common_services
+    
+    # ------------------------------------------------------------------
+    # 直接使用别名 (*) 复用上面定义的 paths 代码块
+    # ------------------------------------------------------------------
+    paths: *common_paths # <-- (2) 使用 *common_paths 引用锚点
+
+    parameters: *common_parameters
+
+  # ====================================================================
+  # 数据集: bird
+  # ====================================================================
+  bird:
+    # services 和 parameters 可以是 bird 数据集特有的
+    services: *common_services
+    
+    # ------------------------------------------------------------------
+    # 直接使用别名 (*) 复用上面定义的 paths 代码块
+    # ------------------------------------------------------------------
+    paths: *common_paths # <-- (2) 使用 *common_paths 引用锚点
+
+    parameters: *common_parameters
+
+  # ====================================================================
+  # 数据集: arxiv
+  # ====================================================================
+  arxiv:
+    # services 和 parameters 可以是 bird 数据集特有的
+    services: *common_services
+    
+    # ------------------------------------------------------------------
+    # 直接使用别名 (*) 复用上面定义的 paths 代码块
+    # ------------------------------------------------------------------
+    paths: *common_paths # <-- (2) 使用 *common_paths 引用锚点
+
+    parameters:
+      max_workers: 32
+      no_parallel_find_semantic_rich: false
+      num_cpus: 10
+      sql_exec_timeout: 60
+      num_candidates: 5
+      sql_number: 75 # this number is vary big, because the semantically rich column number of this dataset is vary small
+
+  # ====================================================================
+  # 数据集: spider
+  # ====================================================================
+  spider:
+    # services 和 parameters 可以是 bird 数据集特有的
+    services: *common_services
+    
+    # ------------------------------------------------------------------
+    # 直接使用别名 (*) 复用上面定义的 paths 代码块
+    # ------------------------------------------------------------------
+    paths: *common_paths # <-- (2) 使用 *common_paths 引用锚点
+
+    parameters: 
+      max_workers: 32
+      no_parallel_find_semantic_rich: false
+      num_cpus: 10
+      sql_exec_timeout: 60
+      num_candidates: 5
+      sql_number: 2 #这个参数特别重要！控制最终文件的大小。
+
+  # ====================================================================
+  # 数据集: wikipedia_multimodal
+  # ====================================================================
+  
