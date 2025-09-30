@@ -185,7 +185,7 @@ def main():
     generate_sql_prompts(config.paths.dataset_json_path, config.paths.tables_json_path, config.paths.prompt_tamplate_path, config.paths.output_prompt_path, config.parameters.dataset_backend, config.paths.database_note_prompt_path, config.services.openai.get('embedding_model_name'))
 
     print("生成最终sql文件，作为测评框架的输入文件")
-    run_sql_synthesis(config.paths.sql_prompt_file_path, config.paths.eval_input_path,  config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'), config.services.openai.get('base_url'), config.paths.cache_file_path_sql, config.parameters.no_parallel,config.parameters.use_vllm)
+    run_sql_synthesis(config.paths.sql_prompt_file_path, config.paths.eval_input_path,  config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'), config.services.openai.get('base_url'), config.paths.cache_file_path_sql, config.parameters.dataset_backend, config.parameters.no_parallel,config.parameters.use_vllm)
     
 
 if __name__ == "__main__":

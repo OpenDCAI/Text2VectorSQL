@@ -114,6 +114,7 @@ def llm_inference(
     api_url: str,
     api_key: str,
     cache_file_path: str,
+    database_type: str,
     parallel: bool = True,
     use_vllm: bool = False
 ) -> list:
@@ -172,10 +173,21 @@ def llm_inference(
     # 修改点：遍历原始的 items 列表来保证顺序和完整性
     for item in items:
         prompt = item["sql_synthesis_prompt"]
+
+        # 从缓存中获取原始的、可能包含```sql的响应
+        raw_response = cache.get(prompt, "")
+        
+        # 如果响应非空，则调用 parse_response 函数进行清理
+        if raw_response:
+            parsed_response = parse_response(raw_response)
+        else:
+            parsed_response = ""
+
         final_results.append({
             "query_id": item["query_id"],
             "db_id": item["db_id"],
-            "response": cache.get(prompt, "") # 从更新后的缓存中获取结果
+            "db_type": database_type,
+            "response": parsed_response
         })
 
     return final_results
@@ -187,6 +199,7 @@ def run_sql_synthesis(
     api_key: str,
     api_url: str,
     cache_file_path: str,
+    database_type: str,
     parallel: bool,
     use_vllm: bool
 ):
@@ -217,6 +230,7 @@ def run_sql_synthesis(
         api_url=api_url,
         api_key=api_key,
         cache_file_path=cache_file_path,
+        database_type = database_type,
         parallel=parallel,
         use_vllm=use_vllm
     )
