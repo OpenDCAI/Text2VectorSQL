@@ -15,7 +15,8 @@ import requests
 import sqlite3
 import yaml
 import clickhouse_connect
-
+import sqlite_vec
+import sqlite_lembed
 # --- 日志设置 ---
 # logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("ExecutionEngine")
@@ -223,6 +224,9 @@ class ExecutionEngine:
                 # SQLite连接（通常很快，但添加超时保护）
                 with timeout_context(self.db_connection_timeout):
                     conn = sqlite3.connect(db_identifier)
+                    conn.enable_load_extension(True)
+                    sqlite_vec.load(conn)
+                    sqlite_lembed.load(conn)
                     cursor = conn.cursor()
                 
                 # SQL执行超时

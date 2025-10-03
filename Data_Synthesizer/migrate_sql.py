@@ -4,8 +4,7 @@ from textwrap import dedent
 import logging
 import json
 
-# 假设 execution_engine.py 在同一个目录下
-from execution_engine.execution_engine import ExecutionEngine, TimeoutError
+from Execution_Engine.execution_engine import ExecutionEngine, TimeoutError
 
 # 配置日志记录
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
