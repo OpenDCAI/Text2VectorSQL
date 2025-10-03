@@ -113,7 +113,7 @@ def main():
             # 1. 转换为 PostgreSQL
             logging.info("  -> 转换为 PostgreSQL 语法...")
             pg_converter = SQLiteToPostgreSQLConverter(original_sql)
-            converted_pg_sql = pg_converter.convert()
+            converted_pg_sql, pg_integration_level = pg_converter.convert()
             logging.info("  -> [PG] 转换成功。")
 
             # 2. 执行 PostgreSQL 查询
@@ -136,7 +136,7 @@ def main():
                 # 3. 转换为 ClickHouse
                 logging.info("  -> 转换为 ClickHouse 语法...")
                 ch_converter = SQLiteToClickHouseConverter(original_sql)
-                converted_ch_sql = ch_converter.convert()
+                converted_ch_sql, ch_integration_level = ch_converter.convert()
                 logging.info("  -> [CH] 转换成功。")
 
                 # 4. 执行 ClickHouse 查询
@@ -161,13 +161,11 @@ def main():
         # 5. 检查并保存结果
         if pg_success and ch_success:
             logging.info(f"✅ 查询在两个后端均成功执行！已保存。")
-            successful_queries_data.append({
-                "question": item.get("question"),
-                "db_id": db_id,
-                "sqlite_sql": original_sql,
-                "postgresql_sql": converted_pg_sql,
-                "clickhouse_sql": converted_ch_sql
-            })
+            item["sqlite_sql"] = original_sql
+            item["postgresql_sql"] = converted_pg_sql
+            item["clickhouse_sql"] = converted_ch_sql
+            item["integration_level"] = (pg_integration_level+ch_integration_level)/2
+            successful_queries_data.append(item)
         else:
             logging.warning(f"❌ 此查询未在所有后端成功执行，已丢弃。")
         
