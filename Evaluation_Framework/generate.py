@@ -31,65 +31,65 @@ except ImportError:
     SamplingParams = None
 
 
-def preprocess_dataset_item(item: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    对数据集中的每个项目进行预处理，按照指定顺序拼接提示词
+# def preprocess_dataset_item(item: Dict[str, Any]) -> Dict[str, Any]:
+#     """
+#     对数据集中的每个项目进行预处理，按照指定顺序拼接提示词
     
-    参数:
-        item: 数据项字典，包含'input'和'question'等键
+#     参数:
+#         item: 数据项字典，包含'input'和'question'等键
         
-    返回:
-        处理后的数据项
-    """
-    # 创建副本以避免修改原始数据
-    processed_item = item.copy()
+#     返回:
+#         处理后的数据项
+#     """
+#     # 创建副本以避免修改原始数据
+#     processed_item = item.copy()
     
-    # 确保包含必要的键
-    if 'schema' not in processed_item:
-        raise ValueError("数据项缺少 'schema' 键")
+#     # 确保包含必要的键
+#     if 'schema' not in processed_item:
+#         raise ValueError("数据项缺少 'schema' 键")
     
-    if 'db_type' not in processed_item:
-        raise ValueError("数据项缺少 'db_type' 键")
+#     if 'db_type' not in processed_item:
+#         raise ValueError("数据项缺少 'db_type' 键")
     
-    if 'embedding_model_name' not in processed_item:
-        raise ValueError("数据项缺少 'embedding_model_name' 键")
+#     if 'embedding_model_name' not in processed_item:
+#         raise ValueError("数据项缺少 'embedding_model_name' 键")
     
-    if 'database_note_prompt' not in processed_item:
-        raise ValueError("数据项缺少 'database_note_prompt' 键")
+#     if 'database_note_prompt' not in processed_item:
+#         raise ValueError("数据项缺少 'database_note_prompt' 键")
     
-    if 'question' not in processed_item:
-        raise ValueError("数据项缺少 'question' 键")
+#     if 'question' not in processed_item:
+#         raise ValueError("数据项缺少 'question' 键")
     
-    # 按照指定顺序拼接字段
-    prompt_parts = []
+#     # 按照指定顺序拼接字段
+#     prompt_parts = []
     
-    # 1. database_note_prompt
-    prompt_parts.append("### Database Note")
-    prompt_parts.append(str(processed_item['database_note_prompt']))
+#     # 1. database_note_prompt
+#     prompt_parts.append("### Database Note")
+#     prompt_parts.append(str(processed_item['database_note_prompt']))
     
-    # 2. embedding_model_name
-    prompt_parts.append("### Embedding Model")
-    prompt_parts.append(str(processed_item['embedding_model_name']))
+#     # 2. embedding_model_name
+#     prompt_parts.append("### Embedding Model")
+#     prompt_parts.append(str(processed_item['embedding_model_name']))
     
-    # 3. db_type
-    prompt_parts.append("### Database Type")
-    prompt_parts.append(str(processed_item['db_type']))
+#     # 3. db_type
+#     prompt_parts.append("### Database Type")
+#     prompt_parts.append(str(processed_item['db_type']))
     
-    # 4. schema
-    prompt_parts.append("### Database Schema")
-    prompt_parts.append(str(processed_item['schema']))
+#     # 4. schema
+#     prompt_parts.append("### Database Schema")
+#     prompt_parts.append(str(processed_item['schema']))
     
-    # 5. 最后加入question
-    prompt_parts.append("### Question")
-    prompt_parts.append(str(processed_item['question']))
+#     # 5. 最后加入question
+#     prompt_parts.append("### Question")
+#     prompt_parts.append(str(processed_item['question']))
     
-    # 拼接所有部分
-    processed_prompt = "\n".join(prompt_parts)
+#     # 拼接所有部分
+#     processed_prompt = "\n".join(prompt_parts)
     
-    # 更新item的input字段为拼接后的字符串
-    processed_item['input'] = processed_prompt
+#     # 更新item的input字段为拼接后的字符串
+#     processed_item['input'] = processed_prompt
     
-    return processed_item
+#     return processed_item
 
 def parse_arguments():
     """解析命令行参数，支持从 YAML 文件加载配置"""
@@ -208,29 +208,29 @@ def load_benchmark_dataset(dataset_path: str) -> List[Dict[str, Any]]:
     return dataset
 
 
-def create_json_format_prompt(original_input: str) -> str:
-    """在原始输入后添加 JSON 格式输出要求"""
-    json_instruction = """
+# def create_json_format_prompt(original_input: str) -> str:
+#     """在原始输入后添加 JSON 格式输出要求"""
+#     json_instruction = """
 
-## Response Format
+# ## Response Format
 
-Please respond with a JSON object in the following format:
+# Please respond with a JSON object in the following format:
 
-```json
-{
-  "reasoning": "Your step-by-step analysis and reasoning process",
-  "sql": "The generated VectorSQL query"
-}
-```
+# ```json
+# {
+#   "reasoning": "Your step-by-step analysis and reasoning process",
+#   "sql": "The generated VectorSQL query"
+# }
+# ```
 
-**Important:**
-- The JSON must be valid and parseable
-- The "reasoning" field should contain your thought process
-- The "sql" field should contain ONLY the SQL query, without additional explanation
-- Do not include any text outside the JSON object
-"""
+# **Important:**
+# - The JSON must be valid and parseable
+# - The "reasoning" field should contain your thought process
+# - The "sql" field should contain ONLY the SQL query, without additional explanation
+# - Do not include any text outside the JSON object
+# """
     
-    return original_input + json_instruction
+#     return original_input + json_instruction
 
 
 def extract_sql_from_json_response(response: str) -> Tuple[Optional[str], Optional[str]]:
@@ -382,8 +382,11 @@ class VLLMGenerator:
         print(f"  数据集大小: {len(dataset)}")
         print(f"  采样参数: temperature={temperature}, max_tokens={max_tokens}\n")
         
-        prompts=[preprocess_dataset_item(item)['input'] for item in dataset]
-        prompts = [create_json_format_prompt(item) for item in prompts]
+        prompts=[]
+        for item in dataset:
+            if 'input' not in item:
+                raise ValueError("数据项缺少 'input' 键")
+            prompts.append(item['input'])
         
         print("正在进行批量推理...")
         outputs = self.llm.generate(prompts, sampling_params)
@@ -453,8 +456,9 @@ class APIGenerator:
     
     def _process_single_item(self, item: Dict[str, Any], index: int, max_tokens: int, temperature: float, top_p: float) -> Dict[str, Any]:
         """处理单个数据项"""
-        prompt=preprocess_dataset_item(item)
-        prompt = create_json_format_prompt(prompt)
+        if 'input' not in item:
+            raise ValueError("数据项缺少 'schema' 键")
+        prompt=item['input']
         response_text = self._call_api(prompt, max_tokens, temperature, top_p)
         
         extracted_sql = None
