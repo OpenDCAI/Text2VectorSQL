@@ -178,6 +178,13 @@ class ExecutionEngine:
         :param db_identifier: 数据库标识符 (对于PG/CH是数据库名, 对于SQLite是文件路径)。
         :return: 包含执行结果的字典。
         """
+        pattern = r"'all-MiniLM-L6-v2'|\"all-MiniLM-L6-v2\"|all-MiniLM-L6-v2"
+        replacement = "'all-MiniLM-L6-v2'"
+        sql = re.sub(pattern, replacement, sql)
+        pattern = r"'laion/CLIP-ViT-B-32-laion2B-s34B-b79K'|\"laion/CLIP-ViT-B-32-laion2B-s34B-b79K\"|laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
+        replacement = "'laion/CLIP-ViT-B-32-laion2B-s34B-b79K'"
+        sql = re.sub(pattern, replacement, sql)
+
         conn = None
         try:
             # 使用总超时包装整个执行过程
