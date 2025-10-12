@@ -239,31 +239,62 @@ class ExecutionEngine:
                 logger.debug(f"翻译后的SQL ({db_type}): {translated_sql}")
                 
                 if db_type == 'postgresql':
+                    # db_config = self.config['database_connections']['postgresql'].copy()
+                    # db_config['dbname'] = db_identifier
+                    # # 添加连接超时参数
+                    # db_config['connect_timeout'] = self.db_connection_timeout
+                    
+                    # with timeout_context(self.db_connection_timeout):
+                    #     conn = psycopg2.connect(**db_config)
+                    #     cursor = conn.cursor()
+                    
+                    # # SQL执行超时
+                    # with timeout_context(self.sql_execution_timeout):
+                    #     cursor.execute(translated_sql)
                     db_config = self.config['database_connections']['postgresql'].copy()
                     db_config['dbname'] = db_identifier
-                    # 添加连接超时参数
+                    
+                    # 【正确方式】设置连接超时和语句执行超时
+                    # statement_timeout 单位是毫秒
                     db_config['connect_timeout'] = self.db_connection_timeout
+                    db_config['options'] = f'-c statement_timeout={self.sql_execution_timeout * 1000}'
+
+                    # 不再需要 signal-based timeout context for connection
+                    conn = psycopg2.connect(**db_config)
+                    cursor = conn.cursor()
                     
-                    with timeout_context(self.db_connection_timeout):
-                        conn = psycopg2.connect(**db_config)
-                        cursor = conn.cursor()
-                    
-                    # SQL执行超时
-                    with timeout_context(self.sql_execution_timeout):
-                        cursor.execute(translated_sql)
+                    # 直接执行，不再需要 signal-based timeout context for execution
+                    # 超时将由 PostgreSQL 服务器处理
+                    cursor.execute(translated_sql)
                         
                 elif db_type == 'clickhouse':
+                    # db_config = self.config['database_connections']['clickhouse'].copy()
+                    # db_config['database'] = db_identifier
+                    # # 添加连接超时参数
+                    # db_config['connect_timeout'] = self.db_connection_timeout
+                    
+                    # with timeout_context(self.db_connection_timeout):
+                    #     client = clickhouse_connect.get_client(**db_config)
+                    
+                    # # SQL执行超时
+                    # with timeout_context(self.sql_execution_timeout):
+                    #     result = client.query(translated_sql)
                     db_config = self.config['database_connections']['clickhouse'].copy()
                     db_config['database'] = db_identifier
-                    # 添加连接超时参数
+                    
+                    # 【正确方式】设置连接超时
                     db_config['connect_timeout'] = self.db_connection_timeout
                     
-                    with timeout_context(self.db_connection_timeout):
-                        client = clickhouse_connect.get_client(**db_config)
+                    # 【正确方式】在查询时设置执行超时
+                    # max_execution_time 单位是秒
+                    query_settings = {'max_execution_time': self.sql_execution_timeout}
+
+                    # 不再需要 signal-based timeout context for connection
+                    client = clickhouse_connect.get_client(**db_config)
                     
-                    # SQL执行超时
-                    with timeout_context(self.sql_execution_timeout):
-                        result = client.query(translated_sql)
+                    # 直接执行，并传入超时设置
+                    # 不再需要 signal-based timeout context for execution
+                    result = client.query(translated_sql, settings=query_settings)
                     
                     return {
                         "status": "success",

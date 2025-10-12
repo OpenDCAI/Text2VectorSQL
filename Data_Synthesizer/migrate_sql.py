@@ -6,9 +6,6 @@ import json
 
 from Execution_Engine.execution_engine import ExecutionEngine, TimeoutError
 
-# 配置日志记录
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
-
 # 定义一组 SQL 关键字，用于辅助判断别名是否合法
 SQL_KEYWORDS = {'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'ON', 'GROUP', 'ORDER', 'LIMIT', 'UNION', 'CROSS', 'HAVING', 'SELECT', 'FROM', 'AS'}
 
@@ -1355,6 +1352,7 @@ class SQLiteToPostgreSQLConverter:
         return self._quote_all_identifiers(final_sql), integration_level
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
     # --- 新增功能：集成执行引擎 ---
     
     # --- 配置区 ---
@@ -1431,10 +1429,10 @@ if __name__ == '__main__':
                 # print(json.dumps(result, indent=2, ensure_ascii=False))
             else:
                 # 捕获由引擎处理的错误（例如，SQL语法错误）
-                print(db_id)
-                print(f"原始 SQLite SQL:\n{original_sql}")
-                print(f"转换后的 {TARGET_DB_TYPE.capitalize()} SQL:\n{converted_sql}")
-                print(f"{'-'*20}")
+                # print(db_id)
+                # print(f"原始 SQLite SQL:\n{original_sql}")
+                # print(f"转换后的 {TARGET_DB_TYPE.capitalize()} SQL:\n{converted_sql}")
+                # print(f"{'-'*20}")
                 logging.warning(f"执行失败: {result.get('message', '未知错误')}")
                 logging.warning("跳过此SQL。")
 
