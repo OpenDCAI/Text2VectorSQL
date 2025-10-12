@@ -26,7 +26,13 @@ def load_json_file(path: str):
 
 def save_execution_results(results: list, path: str):
     """Saves the SQL execution results to a JSON file."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # Get directory path
+    dir_path = os.path.dirname(path)
+    
+    # Only create directory if path has a directory component
+    if dir_path:
+        os.makedirs(dir_path, exist_ok=True)
+    
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
     print(f"\nSQL execution results saved to '{path}'")
@@ -181,6 +187,35 @@ def check_service_status(config_path="evaluation_config.yaml"):
         print(f"✗ Error checking service status: {e}")
         return False
 
+def resolve_db_identifier(base_dir: str, db_identifier: str, db_type: str) -> str:
+    """
+    Resolve the full database identifier based on database type.
+    
+    For SQLite: Combine base_dir and relative db_identifier to create full file path
+    For PostgreSQL/ClickHouse: Return db_identifier directly (it's the database name)
+    
+    :param base_dir: Base directory for database files (only used for SQLite)
+    :param db_identifier: Database identifier (relative path for SQLite, database name for others)
+    :param db_type: Database type ('sqlite', 'postgresql', 'clickhouse')
+    :return: Full path for SQLite, or database name for PostgreSQL/ClickHouse
+    """
+    if db_type == 'sqlite':
+
+        # For SQLite, resolve file path
+        if not os.path.isabs(db_identifier):
+            # Combine base_dir and relative db_identifier
+            db_identifier= os.path.abspath(os.path.join(base_dir, db_identifier))
+        if not os.path.isfile(db_identifier):
+            for file in os.listdir(db_identifier):
+                if file.endswith('.sqlite') :
+                    db_identifier = os.path.join(db_identifier,file)
+                    break
+        #print(f"Using SQLite database file: {db_identifier}")
+        return db_identifier
+    else:
+        # For PostgreSQL/ClickHouse, db_identifier is the database name
+        return db_identifier
+
 def main():
     """
     Stage 1: Execute SQL queries and save results.
@@ -204,8 +239,11 @@ def main():
     try:
         config = load_yaml_config(args.config)
         db_type = config['db_type']
-        eval_queries = load_json_file(config['eval_queries_file'])
-        ground_truth_map = load_json_file(config['ground_truth_file'])
+        base_dir = config.get('base_dir', '.')  # Default to current directory
+        
+        # 从单个文件加载评估数据
+        eval_data = load_json_file(config['eval_data_file'])
+        
         output_file = config['execution_results_file']
         
         # Get embedding service config
@@ -214,6 +252,12 @@ def main():
         service_host = service_config.get('host', '127.0.0.1')
         service_port = service_config.get('port', 8000)
         startup_timeout = service_config.get('startup_timeout', 120)
+        
+        if db_type == 'sqlite':
+            print(f"Database type: SQLite")
+            print(f"Database base directory: {os.path.abspath(base_dir)}")
+        else:
+            print(f"Database type: {db_type.upper()}")
         
     except Exception as e:
         print(f"Error loading configuration or input files: {e}")
@@ -254,7 +298,7 @@ def main():
         print("Initializing Execution Engine...")
         try:
             engine_config_path = os.path.abspath(os.path.join(
-                os.path.dirname(args.config), config['engine_config_path']
+                config['project_dir'], config['engine_config_path']
             ))
             engine = ExecutionEngine(config_path=engine_config_path)
         except Exception as e:
@@ -263,41 +307,59 @@ def main():
 
         # --- 4. Execute SQL Queries ---
         execution_results = []
-        print(f"Executing {len(eval_queries)} evaluation cases...")
+        print(f"Executing {len(eval_data)} evaluation cases...")
         
-        for eval_case in tqdm(eval_queries, desc="Executing SQL"):
+        for eval_case in tqdm(eval_data, desc="Executing SQL"):
             case_result = {
                 "eval_case": eval_case,
                 "eval_execution": None,
-                "ground_truth_executions": []
+                "ground_truth_executions": [],
+                "question": eval_case.get('question', ''),
+                "schema": eval_case.get('schema', '')
             }
             
             try:
-                # Execute evaluation query
-                eval_result = engine.execute(
-                    sql=eval_case['sql'], 
-                    db_type=db_type, 
-                    db_identifier=eval_case['db_name']
-                )
-                case_result['eval_execution'] = eval_result
+                # Get database identifier
+                db_identifier = eval_case.get('db_id')
+                if not db_identifier:
+                    raise ValueError("Missing 'db_identifier' in evaluation case")
                 
-                # Execute ground truth queries
-                query_id = eval_case['query_id']
-                gt_block = ground_truth_map.get(query_id)
+                # Resolve database identifier based on db_type
+                resolved_db_identifier = resolve_db_identifier(base_dir, db_identifier, db_type)
                 
-                if gt_block:
-                    for gt_sql in gt_block['sqls']:
+                #print('-*-*-*'*10)
+                #print(resolved_db_identifier)
+                
+                # Execute evaluation query from 'predicted_sql'
+                predicted_sql = eval_case.get('predicted_sql')
+                if predicted_sql:
+                    eval_result = engine.execute(
+                        sql=predicted_sql, 
+                        db_type=db_type, 
+                        db_identifier=resolved_db_identifier
+                    )
+                    case_result['eval_execution'] = eval_result
+                else:
+                    case_result['eval_execution'] = {"error": "No 'predicted_sql' found in evaluation case."}
+
+                # Execute ground truth queries from 'ground_truth_sqls'
+                ground_truth_sqls = eval_case.get('sql_candidate', [])
+                
+                if ground_truth_sqls:
+                    # Ground truth should use the same database identifier
+                    for gt_sql in ground_truth_sqls:
                         gt_result = engine.execute(
                             sql=gt_sql, 
                             db_type=db_type, 
-                            db_identifier=gt_block['db_name']
+                            db_identifier=resolved_db_identifier
                         )
                         case_result['ground_truth_executions'].append({
                             "sql": gt_sql,
                             "execution": gt_result
                         })
                 else:
-                    print(f"Warning: No ground truth found for query_id '{query_id}'")
+                    query_id = eval_case.get('query_id', 'N/A')
+                    print(f"Warning: No 'ground_truth_sqls' list found for query_id '{query_id}'")
                     
             except Exception as e:
                 case_result['execution_error'] = str(e)

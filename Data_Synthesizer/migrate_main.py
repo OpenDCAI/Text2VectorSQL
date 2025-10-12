@@ -3,6 +3,9 @@ import logging
 import argparse
 import os
 import re
+import sys
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
 
 # 从您提供的脚本中导入必要的模块和类
 from migrate_db import find_database_files, migrate_to_both_backends
@@ -11,7 +14,7 @@ from Execution_Engine.execution_engine import ExecutionEngine, TimeoutError
 
 # --- 配置区 ---
 # 日志配置
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+logging.basicConfig(level=logging.ERROR, format='[%(levelname)s] %(message)s')
 
 # 输入/输出文件配置
 SOURCE_DB_PATH = '/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/toy_spider/'

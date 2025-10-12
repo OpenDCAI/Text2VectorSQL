@@ -7,7 +7,9 @@ import sys
 import os
 from tqdm import tqdm
 from collections import defaultdict
-
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
+from sql_executor import resolve_db_identifier
 # Import metrics calculation functions
 from metrics import (
     calculate_set_metrics,
@@ -18,8 +20,34 @@ from metrics import (
     calculate_exact_match_any_gt_with_columns,
     calculate_set_metrics_with_columns,
     calculate_ranking_metrics_with_columns,
-    _get_gt_columns
+    _get_gt_columns,
+    evaluate_vectorsql_with_llm,
+    calculate_llm_based_scores
 )
+
+def _ensure_tuple_list(data):
+    """
+    确保数据格式为 list[tuple]。
+    
+    Args:
+        data: 可能是 list[tuple]、list[list] 或其他格式的数据
+        
+    Returns:
+        list[tuple]: 转换后的数据
+    """
+    if not data:
+        return []
+    
+    # 如果已经是 list[tuple]，直接返回
+    if isinstance(data[0], tuple):
+        return data
+    
+    # 如果是 list[list]，转换为 list[tuple]
+    if isinstance(data[0], list):
+        return [tuple(row) for row in data]
+    
+    # 其他情况，尝试转换
+    return [tuple(row) if not isinstance(row, tuple) else row for row in data]
 
 def load_yaml_config(path: str) -> dict:
     """Loads a YAML configuration file."""
@@ -33,7 +61,13 @@ def load_json_file(path: str):
 
 def save_evaluation_report(report: dict, path: str):
     """Saves the final evaluation report to a JSON file."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # Get directory path
+    dir_path = os.path.dirname(path)
+    
+    # Only create directory if path has a directory component
+    if dir_path:
+        os.makedirs(dir_path, exist_ok=True)
+    
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
     print(f"\nEvaluation report saved to '{path}'")
@@ -41,8 +75,11 @@ def save_evaluation_report(report: dict, path: str):
 def extract_successful_data(execution_result: dict) -> list:
     """Extract data from a successful execution result."""
     if execution_result and execution_result.get('status') == 'success':
-        return execution_result.get('data', [])
+        data = execution_result.get('data', [])
+        # 确保返回的数据是 list[tuple] 格式
+        return _ensure_tuple_list(data)
     return []
+
 
 def main():
     """
@@ -71,6 +108,32 @@ def main():
         # Parse metrics configuration
         metrics_to_run = {m['name'] if isinstance(m, dict) else m for m in config.get('metrics', [])}
         metric_params = {m['name']: m for m in config.get('metrics', []) if isinstance(m, dict)}
+        
+        # Get database configuration (needed for both execution and LLM evaluation)
+        db_type = config.get('db_type', 'sqlite')
+        base_dir = config.get('base_dir', '.')
+        
+        # Load LLM evaluation configuration
+        llm_config = config.get('llm_evaluation', {})
+        llm_enabled = llm_config.get('enabled', False)
+        llm_api_config = {}
+        llm_timeout = 60
+        llm_include_details = True
+        
+        if llm_enabled:
+            llm_api_config = {
+                'url': llm_config.get('api_url', ''),
+                'api_key': llm_config.get('api_key', ''),
+                'model': llm_config.get('model_name', 'gpt-3.5-turbo')
+            }
+            llm_timeout = llm_config.get('timeout', 60)
+            llm_include_details = llm_config.get('include_details', True)
+            
+            print(f"LLM Evaluation: ENABLED")
+            print(f"  Model: {llm_api_config['model']}")
+            print(f"  API URL: {llm_api_config['url']}")
+        else:
+            print(f"LLM Evaluation: DISABLED")
         
     except Exception as e:
         print(f"Error loading configuration: {e}")
@@ -133,10 +196,7 @@ def main():
             evaluated_results.append(case_report)
             continue
             
-        if not all_gt_data:
-            case_report["execution_summary"]["evaluation_skipped"] = "No successful ground truth executions"
-            evaluated_results.append(case_report)
-            continue
+
 
         # Individual GT results for exact match calculation
         individual_gt_results = []
@@ -146,7 +206,7 @@ def main():
             if gt_data:  # Only include successful GT executions
                 individual_gt_results.append(gt_data)
 
-        # --- 5. Calculate Metrics ---
+        # --- 4. Calculate Traditional Metrics ---
         try:
             # Get column information for evaluation and ground truth
             eval_columns = eval_execution.get('columns', [])
@@ -215,6 +275,72 @@ def main():
         except Exception as e:
             case_report["evaluation_error"] = str(e)
             print(f"Error evaluating case {case_report['eval_case'].get('query_id', 'unknown')}: {e}")
+        
+        # --- 5. LLM-based Evaluation (if enabled) ---
+        
+        if llm_enabled:
+            try:
+                eval_case_data = case.get("eval_case", {})
+                
+                # Get natural language question (if available)
+                nl_question = eval_case_data.get('question', '')
+                
+                # Get predicted SQL query
+                predicted_query = eval_case_data.get('predicted_sql', '')
+                
+                # Get ground truth SQL query (use first one)
+                ground_truth_query = ''
+                if gt_executions:
+                    ground_truth_query = gt_executions[0].get('sql', '')
+                
+                # Load database schema
+                db_identifier = eval_case_data.get('db_identifier', '')
+                db_schema = eval_case_data.get('schema', '')
+               
+                
+                # Only evaluate if we have all required information
+  
+                if nl_question and predicted_query and ground_truth_query and db_schema:
+                    llm_result = evaluate_vectorsql_with_llm(
+                        nl_question=nl_question,
+                        db_schema=db_schema,
+                        ground_truth_query=ground_truth_query,
+                        predicted_query=predicted_query,
+                        api_config=llm_api_config,
+                        timeout=llm_timeout
+                    )
+                    
+                    if llm_result:
+                        # Extract scores
+                        llm_scores = calculate_llm_based_scores(llm_result)
+                        case_report['scores'].update(llm_scores)
+                        
+                        # Add to aggregated scores
+                        for metric, score in llm_scores.items():
+                            aggregated_scores[metric].append(score)
+                        
+                        # Include detailed evaluation if configured
+                        if llm_include_details:
+                            case_report['llm_evaluation_details'] = llm_result
+                    else:
+                        case_report['llm_evaluation_error'] = "LLM evaluation failed"
+                else:
+                    # Missing required information
+                    missing_fields = []
+                    if not nl_question:
+                        missing_fields.append('question')
+                    if not predicted_query:
+                        missing_fields.append('sql')
+                    if not ground_truth_query:
+                        missing_fields.append('ground_truth_sql')
+                    if not db_schema:
+                        missing_fields.append('db_schema')
+                    
+                    case_report['llm_evaluation_skipped'] = f"Missing required fields: {', '.join(missing_fields)}"
+                    
+            except Exception as e:
+                case_report['llm_evaluation_error'] = str(e)
+                print(f"Error in LLM evaluation for case {case_report['eval_case'].get('query_id', 'unknown')}: {e}")
         
         evaluated_results.append(case_report)
 

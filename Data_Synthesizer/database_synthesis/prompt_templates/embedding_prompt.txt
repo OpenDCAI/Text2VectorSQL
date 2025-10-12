@@ -1,0 +1,47 @@
+**Task Overview:**
+As a senior data analyst, your task is to enhance an initial database schema to incorporate embedding columns for semantically rich fields based on a given business scenario while preserving all original data structure and sample values.
+
+**Strict Requirements:**
+1. **Schema Preservation:**
+   - Maintain ALL original columns unless you have valid reason
+   - Do not delete existing sample_rows values just modify them
+   - Keep original column order unless adding new embedding columns
+
+2. **Embedding Column Addition:**
+   - Only add new columns with suffix `_embedding` (type: BLOB)
+   - Select columns based on semantic richness (text, descriptions, content)
+   - Never modify existing column names/types/values
+
+3. **Sample Data Handling:**
+   - For new embedding columns in sample_rows:
+     * Use explicit null values (`null`)
+     * Maintain original structure
+     * Preserve all existing key-value pairs
+
+**Steps:**
+1. **Analyze Semantic Columns:** Identify existing columns with rich semantic information (text descriptions, reviews, content, names, etc.)
+2. **Generate Embedding Columns:** For each identified column:
+   - Create a new column with name `[original_col]_embedding`
+   - Set type as `BLOB` (binary storage for vector embeddings)
+   - Keep sample values as empty (`null` or `""`)
+3. **Preserve Relationships:** Maintain existing primary/foreign key relationships
+4. **Document Reasoning:** Briefly explain why each embedding column was added
+
+**Business Domain:**
+{domain}
+
+**Business Scenario:**
+{scenario}
+
+**Initial Database Schema:**
+```json
+{schema}
+```
+
+**Output Format:**
+Your output should provide the enriched database schema with embedding columns in JSON format:
+```json
+    -- enriched database schema with embedding
+```
+
+Let's think step by step.

@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 # 配置hugging face代理
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+os.environ['HF_ENDPOINT'] = 'https://alpha.hf-mirror.com'
 
 # 获取当前文件的绝对路径
 current_file_path = os.path.abspath(__file__)
@@ -147,7 +147,7 @@ def create_directory_with_os(directory_name: str):
 def main():
     try:
         # 只需要修改这里，就可以加载不同的数据集配置！
-        DATASET_TO_LOAD = "toy_spider" 
+        DATASET_TO_LOAD = "test" 
         # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
         
         config = load_config(database="sqlite", dataset=DATASET_TO_LOAD)
@@ -189,8 +189,8 @@ def main():
     except (FileNotFoundError, KeyError, yaml.YAMLError) as e:
         print(f"错误: 配置加载失败 - {e}")
 
-    # # 开始执行pipeline
-    # # 如果数据库没有tables.json文件，那么你就必须运行这个代码为数据库生成tables.json文件
+    # 开始执行pipeline
+    # 如果数据库没有tables.json文件，那么你就必须运行这个代码为数据库生成tables.json文件
     # print("################################################")
     # print("为数据库生成schema")
     # generate_schema(config.paths.source_db_root, config.paths.generate_tables_json_path)
@@ -204,9 +204,9 @@ def main():
     # print("查找所有数据库中语义丰富的列，并计入schema")
     # main_find_rich_semantic_column(config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),enhance_json_path,config.paths.find_semantic_table_json,config.parameters.no_parallel_find_semantic_rich,config.paths.find_semantic_prompt_template_path)
 
-    # print("################################################")
-    # print("为语义丰富的列生成embedding，并构建向量数据库")
-    # main_batch_vectorize_databases(config.paths.source_db_root,config.paths.sql_script_dir,config.paths.vector_db_root,config.paths.find_semantic_table_json,config.paths.model_name_or_path,config.paths.EMBED_MODEL_PATH_CACHE)
+    print("################################################")
+    print("为语义丰富的列生成embedding，并构建向量数据库")
+    main_batch_vectorize_databases(config.paths.source_db_root,config.paths.sql_script_dir,config.paths.vector_db_root,config.paths.find_semantic_table_json,config.paths.model_name_or_path,config.paths.EMBED_MODEL_PATH_CACHE)
 
     # print("################################################")
     # print("为Image表格中的图片添加embedding")
@@ -253,9 +253,9 @@ def main():
     # print("合成cot")
     # synthesize_cot(config.paths.gene_cot_prompts_output_prompt_path,config.paths.synthesize_cot_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.max_workers,config.paths.cache_file_path_cot,5,0.8)
 
-    print("################################################")
-    print("选择合适的cot，并且过滤可以成功运行的sql")
-    post_process_cot(config.paths.post_process_cot_results_path,config.paths.post_process_cot_db_dir,config.paths.post_process_cot_output_dir,"http://127.0.0.1:8001/embed","CLIP-ViT-B-32-laion2B-s34B-b_79K")
+    # print("################################################")
+    # print("选择合适的cot，并且过滤可以成功运行的sql")
+    # post_process_cot(config.paths.post_process_cot_results_path,config.paths.post_process_cot_db_dir,config.paths.post_process_cot_output_dir,"http://127.0.0.1:8001/embed","CLIP-ViT-B-32-laion2B-s34B-b_79K")
 
     
 

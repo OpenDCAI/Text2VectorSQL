@@ -568,6 +568,10 @@ def post_process_sqls(db_dir: str, output_path: str, llm_json_path: str,
     for r in llm_resps:
         sql = parse_response(r["response"])
         if not sql: continue
+
+        # 这个正则表达式会找到模型名，无论它是否有引号，并统一替换为带单引号的格式
+        sql = re.sub(r"(lembed\s*\(\s*)(['\"]?)([^,]+?)\2(\s*,)", r"\1'\3'\4", sql, flags=re.IGNORECASE)
+
         db_id = r["db_id"][:-3] if r["db_id"].endswith(".db") else r["db_id"]
         complexity = r.get("complexity") or r["prompt"].split("Ensure the SQL query matches the ")[1].split(" level")[0]
         sql_infos.append(dict(db_id=db_id, sql=sql, complexity=complexity))

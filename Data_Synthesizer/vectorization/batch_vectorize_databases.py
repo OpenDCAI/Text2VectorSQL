@@ -21,8 +21,6 @@ except ImportError as e:
 from dotenv import load_dotenv
 load_dotenv()
 
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-
 def load_completion_status(status_file):
     if os.path.exists(status_file):
         try:

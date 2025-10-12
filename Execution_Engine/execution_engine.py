@@ -136,7 +136,7 @@ class ExecutionEngine:
         :param db_type: 数据库类型 ('postgresql', 'clickhouse', 'sqlite')。
         :return: 翻译后的原生SQL查询。
         """
-        lembed_pattern = re.compile(r"lembed\('([^']*)',\s*'([^']*)'\)")
+        lembed_pattern = re.compile(r"lembed\('([^']*)',\s*['\"](.*?)['\"]\)")
         matches = lembed_pattern.findall(sql)
         
         if not matches:
@@ -207,7 +207,7 @@ class ExecutionEngine:
         try:
             # --- 对于SQLite，由于需要传递BLOB，处理方式特殊 ---
             if db_type == 'sqlite':
-                lembed_pattern = re.compile(r"lembed\('([^']*)',\s*'([^']*)'\)")
+                lembed_pattern = re.compile(r"lembed\('([^']*)',\s*['\"](.*?)['\"]\)")
                 matches = lembed_pattern.findall(sql)
                 params = []
                 if matches:

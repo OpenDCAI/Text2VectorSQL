@@ -224,7 +224,9 @@ def post_process_cot(results_path, db_dir, output_dir, server_url, model_name):
                 "db_id": cot_result["db_id"],
                 "sql_complexity": cot_result["sql_complexity"],
                 "question_style": cot_result["question_style"],
+                "sql_explanation": cot_result["sql_explanation"],
                 "question": cot_result["question"],
+                "sql_candidate": cot_result["sql_candidate"],
                 "external_knowledge": cot_result["external_knowledge"],
                 "cot": final_cot,
                 "sql": parse_response(final_cot)

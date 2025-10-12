@@ -22,6 +22,8 @@ prompts/
 models/
 models_cache/
 results/
+Data_Synthesizer/database_synthesis/*.json
+Evaluation_Framework/*.json
 
 spider_data/
 spider2_data/
@@ -54,3 +56,6 @@ tmp/
 *.yaml
 Data_Synthesizer/data
 
+Data_Synthesizer/database_synthesis/synthesis_data
+Data_Synthesizer/database_synthesis/tables.json
+Data_Synthesizer/database_synthesis/web_tables.json

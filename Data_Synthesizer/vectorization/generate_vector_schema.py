@@ -35,7 +35,7 @@ def generate_schema_for_db(db_id, db_path, original_schema):
     # --- MODIFICATION END ---
 
     try:
-        print(f"""processing da_path: {db_path}""")
+        # print(f"""processing da_path: {db_path}""")
         conn = sqlite3.connect(db_path)
         conn.enable_load_extension(True)
         sqlite_vec.load(conn)

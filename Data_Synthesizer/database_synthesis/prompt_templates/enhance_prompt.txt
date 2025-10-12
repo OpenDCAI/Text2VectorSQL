@@ -1,0 +1,26 @@
+**Task Overview:**
+As a senior data analyst, your task is to enhance an initial database schema to provide a more detailed and realistic structure based on a given business scenario.
+
+**Steps:**
+1. **Analyze the Scenario:** Understand the provided business context.
+2. **Identify Enhancements:** For each existing table, suggest new columns and explain their relevance. Be creative and thorough.
+3. **Enrich the Schema:** Present the enriched schema in JSON format, ensuring proper primary and foreign key relationships.
+
+**Business Domain:**
+{domain}
+
+**Business Scenario:**
+{scenario}
+
+**Initial Database Schema:**
+```json
+{schema}
+```
+
+**Output Format:**
+Your output should provide the enriched database schema in JSON format:
+```json
+    -- enriched database schema
+```
+
+Let's think step by step.

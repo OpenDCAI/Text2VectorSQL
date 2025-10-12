@@ -1,0 +1,51 @@
+**Task Overview:**
+As a senior data analyst, your task is to enhance an initial database schema to incorporate embedding columns for semantically rich fields based on a given business scenario while preserving all original data structure and sample values.
+
+**Strict Requirements:**
+1. **Schema Preservation:**
+   - Maintain ALL original columns unless you have valid reason
+   - Do not delete existing sample_rows values just modify them
+   - Keep original column order unless adding new embedding columns
+
+2. **Embedding Column Addition:**
+   - Select columns based on semantic richness (text, descriptions, content, abstract, review, title, plot_summary and name), then add new columns with suffix `_embedding` (type: BLOB)
+   - If the table lacks columns with semantically rich information (e.g., names, descriptions), and you determine that such columns would improve its utility, you may add them with appropriate, meaningful data. For each added column, ensure you also create a corresponding embedding column by appending '_embedding' to its name (e.g., adding a 'description' column requires a 'description_embedding' column)
+   - Never modify existing column names/types/values
+
+3. **Sample Data Handling:**
+   - For new embedding columns in sample_rows:
+     * Use explicit null values (`null`)
+     * Maintain original structure
+     * Preserve all existing key-value pairs
+
+**Steps:**
+1. **Analyze Semantic Columns:** Identify existing columns with rich semantic information (text descriptions, reviews, content, names, etc.)
+2. **Generate Embedding Columns:** For each identified column:
+   - Create a new column with name `[original_col]_embedding`
+   - Set type as `BLOB` (binary storage for vector embeddings)
+   - Keep sample values as empty (`null` or `""`)
+3. **Generate New Columns With Embedding Columns:** If no columns with rich semantic information, you need to check the possibility of generate new columns with rich semantic information and corresponding meaningful sample values and Embedding Columns.
+Key Clarifications:
+​--​Condition​​: Only add columns if the table lacks meaningful semantic data andyou judge them necessary
+--​​Embedding Requirement​​: Emphasizes the 1:1 pairing (new column → with suffix _embedding column) with naming convention
+3. **Preserve Relationships:** Maintain existing primary/foreign key relationships
+4. **Document Reasoning:** Briefly explain why each embedding column was added
+
+**Business Domain:**
+{domain}
+
+**Business Scenario:**
+{scenario}
+
+**Initial Database Schema:**
+```json
+{schema}
+```
+
+**Output Format:**
+Your output should provide the enriched database schema with embedding columns in JSON format:
+```json
+    -- enriched database schema with embedding
+```
+
+Let's think step by step.
