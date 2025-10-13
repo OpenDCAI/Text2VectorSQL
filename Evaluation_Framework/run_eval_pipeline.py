@@ -119,23 +119,23 @@ Examples:
         help="Path to the base evaluation configuration file (default: evaluation_config.yaml)"
     )
     config_group.add_argument(
-        "--base-dir",
+        "--base_dir",
         help="Override 'base_dir' from the config file"
     )
     config_group.add_argument(
-        "--evaluation-report-file",
+        "--evaluation_report_file",
         help="Override 'evaluation_report_file' from the config file"
     )
     config_group.add_argument(
-        "--db-type",
+        "--db_type",
         help="Override 'db_type' from the config file (e.g., 'sqlite', 'postgresql')"
     )
     config_group.add_argument(
-        "--eval-data-file",
+        "--eval_data_file",
         help="Override 'eval_data_file' from the config file"
     )
     config_group.add_argument(
-        "--execution-results-file",
+        "--execution_results_file",
         help="Override 'execution_results_file' from the config file"
     )
 

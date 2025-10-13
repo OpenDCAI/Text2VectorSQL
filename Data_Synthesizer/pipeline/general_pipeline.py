@@ -12,6 +12,7 @@ import sys
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # 只需要修改这里，就可以加载不同的数据集配置！
+DATASET_BACKEND = "clickhouse" # "clickhouse"
 DATASET_TO_LOAD = "test" # "synthesis_data" 
 # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
 
@@ -157,7 +158,7 @@ def create_directory_with_os(directory_name: str):
 
 def main():
     try:
-        config = load_config(database="sqlite", dataset=DATASET_TO_LOAD)
+        config = load_config(database=DATASET_BACKEND, dataset=DATASET_TO_LOAD)
 
         print(f"--- 成功加载 '{DATASET_TO_LOAD}' 数据集的配置! ---")
         

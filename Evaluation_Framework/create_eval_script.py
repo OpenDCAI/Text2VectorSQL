@@ -119,7 +119,7 @@ if __name__ == '__main__':
     
     # 如果没有VLLM模型，可以将此列表设置为空: VLLM_MODELS = []
     VLLM_MODELS = [
-        'Qwen/Qwen2.5-72B-Instruct',
+        # 'Qwen/Qwen2.5-72B-Instruct',
         # 'Llama/Llama-3-70b-chat-hf'
     ]
     

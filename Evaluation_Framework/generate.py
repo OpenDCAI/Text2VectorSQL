@@ -152,7 +152,7 @@ def parse_arguments():
     api_group.add_argument('--api_url', type=str, help='[API] API 端点 URL')
     api_group.add_argument('--api_key', type=str, help='[API] API 密钥')
     api_group.add_argument('--model_name', type=str, help='[API] 模型名称')
-    api_group.add_argument('--num_threads', type=int, help='[API] 并发线程数')
+    api_group.add_argument('--num_threads', type=int, default=32, help='[API] 并发线程数')
     api_group.add_argument('--api_timeout', type=int, help='[API] API 请求超时时间（秒）')
     api_group.add_argument('--retry_times', type=int, help='[API] 失败重试次数')
     
