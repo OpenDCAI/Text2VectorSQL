@@ -131,7 +131,7 @@ def parse_arguments():
         """
     )
     
-    parser.add_argument('--config', type=str, help='YAML 配置文件路径')
+    parser.add_argument('--config', type=str,default='/mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/generate_config.yaml', help='YAML 配置文件路径')
     
     # 通用参数
     parser.add_argument('--mode', type=str, choices=['vllm', 'api'], help='生成模式: vllm (离线推理) 或 api (在线调用)')
@@ -324,11 +324,13 @@ def format_for_eval_framework(item: Dict[str, Any], generated_sql: Optional[str]
         'db_id': item.get('db_id', ''),
         'db_identifier': item.get('db_id', ''),
         'db_type': item.get('db_type', 'sqlite'),
+        'sql': item.get('sql', ''),
         'question': item.get('question', ''),
         'scheme': item.get('scheme', ''),
         'syntax': item.get('syntax', ''),
         'embed': item.get('embed', ''),
         'predicted_sql': generated_sql if generated_sql else '',
+        "sql_candidate": item.get("sql_candidate", []),
     }
     
     if reasoning:
@@ -490,7 +492,7 @@ class APIGenerator:
                         results[index] = result
                         
                         with lock:
-                            if result['sql']:
+                            if result['predicted_sql']:
                                 successful_count += 1
                         
                         if output_path and (index + 1) % save_interval == 0:

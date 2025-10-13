@@ -5,7 +5,7 @@ There are a few Requirements you should Comply with in addition:
 2. Only vector type(like: float[?]) support KNN queries and the name of vector column often end with "_embedding". So, you can use knn queries to search when the column name you need to search for ends with "_embedding" or when the column name with "_embedding" is also in the list.
 3. In any complexity level, you can choose to use KNN queries if need.
 4. When using KNN queries, you have to add LIMIT or 'And k = ?' constraint but do not use them all in the same statement. This rule is very important, do not forget to add LIMIT or 'And k = ?' constraint after MATCH operator.
-5. The lembed function is used to transform a string into a vector, whose type and size match the corresponding column type in the data table. The function has two parameters, the first parameter is the name of the embedding model used (default value: {embedding_model}), and the second parameter is the content of the string type you want to convert. So, you should generate some words or sentences with specific semantic information based on name, type and comment of this column. For example, you can generate "The Daily Grind Coffee Shop\n 456 Oak Avenue\n Springfield, IL 62704\n USA" when this column name is Location_embedding, column type is float[?] and comment of column is "the embedding of location".
+5. The lembed function is used to transform a string into a vector, whose type and size match the corresponding column type in the data table. The function has two parameters, the first parameter is the name of the embedding model used (default value: '{embedding_model}'), and the second parameter is the content of the string type you want to convert. So, you should generate some words or sentences with specific semantic information based on name, type and comment of this column. For example, you can generate "The Daily Grind Coffee Shop\n 456 Oak Avenue\n Springfield, IL 62704\n USA" when this column name is Location_embedding, column type is float[?] and comment of column is "the embedding of location".
 6. When using MATCH, please fill in a vector using function lembed after MATCH that matches the column type (with the same dimension and type). Using details are in examples.
 7. The distance column is an ​​implicitly generated metric​​ that appears when performing vector similarity searches (using the MATCH operator) in SQLite vector extensions like sqlite-vec. If using JOIN operator, you have to clarify which table that distance belongs to.
 8. A SELECT statement should have no more than one MATCH operation. However, each subquery within a SELECT statement could also have no more than one MATCH operation, independent of the parent query."
@@ -19,7 +19,7 @@ Correct Example:
 SELECT a.codec_name
 FROM audio_codecs a
 JOIN quality_levels q ON a.codec_id = q.quality_id
-WHERE a.description_embedding MATCH lembed({embedding_model}, "High efficiency audio codec with low latency and optimal bandwidth") LIMIT 1
+WHERE a.description_embedding MATCH lembed('{embedding_model}', "High efficiency audio codec with low latency and optimal bandwidth") LIMIT 1
 AND q.quality_name = 'HighQuality';
 ```
 --When using JOIN operations, you need to ensure that k does not cause ambiguity in the query. In most cases, the k parameter logically belongs to the same table as the column used in the MATCH clause. So, when the column referenced in the MATCH clause includes a table qualifier (e.g., table1.embedding), the k parameter must be explicitly bound to the same table.
@@ -28,7 +28,7 @@ Correct Example:
 SELECT s.stock_id, s.symbol
 FROM stocks s
 JOIN exchanges e ON s.exchange_id = e.exchange_id
-WHERE s.sector_embedding MATCH lembed({embedding_model}, "Tech industry sector in the USA")
+WHERE s.sector_embedding MATCH lembed('{embedding_model}', "Tech industry sector in the USA")
 AND e.country = 'USA'
 AND s.k = 5
 ORDER BY s.stock_id;
@@ -39,7 +39,7 @@ example(type of vector_embedding is float[384]):
 ```sql
 SELECT rowid, distance 
 FROM vec_table 
-WHERE vector_embedding MATCH lembed({embedding_model},"vector of sun")
+WHERE vector_embedding MATCH lembed('{embedding_model}',"vector of sun")
 ORDER BY distance 
 LIMIT 1;
 ```

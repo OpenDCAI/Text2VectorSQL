@@ -6,7 +6,13 @@
 # Base directory for database files (only for SQLite)
 # For SQLite: db_identifier is a relative path to the database file
 # For PostgreSQL/ClickHouse: db_identifier is the database name
+
+#数据库的根目录
 base_dir: /mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/test/vector_databases
+
+evaluation_report_file: evaluation_report.json
+
+#项目的根目录
 project_dir: /mnt/b_public/data/ydw/Text2VectorSQL/
 
 # --- SQL Execution Configuration ---
@@ -17,8 +23,8 @@ engine_config_path: Execution_Engine/engine_config.yaml
 # Supported types: 'sqlite', 'postgresql', 'clickhouse'
 db_type: 'sqlite'
 
-
-eval_data_file: /mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/test/input_llm.json
+#待测评的数据的文件路径
+eval_data_file: /mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/input_output.json
 
 
 
@@ -91,4 +97,4 @@ llm_evaluation:
   # - name: 'llm_overall'           # LLM评估的综合得分
 
 # The final evaluation report will be saved to this file.
-evaluation_report_file: evaluation_report.json
+

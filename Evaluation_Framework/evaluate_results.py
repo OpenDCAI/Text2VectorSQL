@@ -348,7 +348,7 @@ def main():
     final_summary = {}
     for metric, scores in aggregated_scores.items():
         if scores:
-            final_summary[f'average_{metric}'] = sum(scores) / len(scores)
+            final_summary[f'average_{metric}'] = sum(scores) / len(execution_results)
             final_summary[f'count_{metric}'] = len(scores)
 
     # Add overall statistics
