@@ -139,3 +139,49 @@ python generate.py \
     --output "./results/sqlite/wikipedia_multimodal/out_llm_api_gpt-4-turbo.json" \
     --model_name "gpt-4-turbo" \
     --config "/mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/generate_config.yaml"
+
+### VLLM Mode Commands ###
+
+# Ensure output directory exists for arxiv on sqlite
+mkdir -p ./results/sqlite/arxiv
+
+echo "--- Running VLLM [Qwen2.5-72B-Instruct] on DATASET [arxiv] for BACKEND [sqlite] ---"
+python generate.py \
+    --mode "vllm" \
+    --dataset "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/arxiv/input_llm.json" \
+    --model_path "/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct" \
+    --output "./results/sqlite/arxiv/out_llm_vllm_Qwen2.5-72B-Instruct.json" \
+    --config "/mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/generate_config.yaml"
+
+# Ensure output directory exists for bird on sqlite
+mkdir -p ./results/sqlite/bird
+
+echo "--- Running VLLM [Qwen2.5-72B-Instruct] on DATASET [bird] for BACKEND [sqlite] ---"
+python generate.py \
+    --mode "vllm" \
+    --dataset "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/bird/input_llm.json" \
+    --model_path "/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct" \
+    --output "./results/sqlite/bird/out_llm_vllm_Qwen2.5-72B-Instruct.json" \
+    --config "/mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/generate_config.yaml"
+
+# Ensure output directory exists for spider on sqlite
+mkdir -p ./results/sqlite/spider
+
+echo "--- Running VLLM [Qwen2.5-72B-Instruct] on DATASET [spider] for BACKEND [sqlite] ---"
+python generate.py \
+    --mode "vllm" \
+    --dataset "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/spider/input_llm.json" \
+    --model_path "/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct" \
+    --output "./results/sqlite/spider/out_llm_vllm_Qwen2.5-72B-Instruct.json" \
+    --config "/mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/generate_config.yaml"
+
+# Ensure output directory exists for wikipedia_multimodal on sqlite
+mkdir -p ./results/sqlite/wikipedia_multimodal
+
+echo "--- Running VLLM [Qwen2.5-72B-Instruct] on DATASET [wikipedia_multimodal] for BACKEND [sqlite] ---"
+python generate.py \
+    --mode "vllm" \
+    --dataset "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/wikipedia_multimodal/input_llm.json" \
+    --model_path "/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct" \
+    --output "./results/sqlite/wikipedia_multimodal/out_llm_vllm_Qwen2.5-72B-Instruct.json" \
+    --config "/mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/generate_config.yaml"

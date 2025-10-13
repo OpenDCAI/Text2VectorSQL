@@ -76,6 +76,9 @@ Examples:
 
   # Check service status
   python run_eval_pipeline.py --service-status
+  
+  # Override config values from the command line
+  python run_eval_pipeline.py --all --db-type 'postgresql' --eval-data-file 'new_data.json' --base-dir './new_db_dir'
 
   # Disable automatic service management
   python run_eval_pipeline.py --all --no-service-management
@@ -109,16 +112,40 @@ Examples:
     )
     
     # Configuration
-    parser.add_argument(
+    config_group = parser.add_argument_group('Configuration Overrides', 'These arguments override settings in the YAML config file.')
+    config_group.add_argument(
         "--config",
         default="evaluation_config.yaml",
-        help="Path to the evaluation configuration file"
+        help="Path to the base evaluation configuration file (default: evaluation_config.yaml)"
     )
-    parser.add_argument(
+    config_group.add_argument(
+        "--base-dir",
+        help="Override 'base_dir' from the config file"
+    )
+    config_group.add_argument(
+        "--evaluation-report-file",
+        help="Override 'evaluation_report_file' from the config file"
+    )
+    config_group.add_argument(
+        "--db-type",
+        help="Override 'db_type' from the config file (e.g., 'sqlite', 'postgresql')"
+    )
+    config_group.add_argument(
+        "--eval-data-file",
+        help="Override 'eval_data_file' from the config file"
+    )
+    config_group.add_argument(
+        "--execution-results-file",
+        help="Override 'execution_results_file' from the config file"
+    )
+
+    # Other options
+    other_group = parser.add_argument_group('Other Options')
+    other_group.add_argument(
         "--execution-results",
         help="Path to execution results file (for evaluate-only mode)"
     )
-    parser.add_argument(
+    other_group.add_argument(
         "--no-service-management",
         action="store_true",
         help="Disable automatic service management for pipeline operations"
@@ -134,12 +161,56 @@ Examples:
     if args.service_status:
         check_service_status(args.config)
         return
+
+    # Load base config and apply command-line overrides
+    try:
+        with open(args.config, 'r', encoding='utf-8') as f:
+            config_data = yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f"Error: Configuration file not found at '{args.config}'")
+        sys.exit(1)
+
+    # Apply overrides from command-line arguments to the loaded config
+    if args.base_dir:
+        config_data['base_dir'] = args.base_dir
+    if args.evaluation_report_file:
+        config_data['evaluation_report_file'] = args.evaluation_report_file
+    if args.db_type:
+        config_data['db_type'] = args.db_type
+    if args.eval_data_file:
+        config_data['eval_data_file'] = args.eval_data_file
+    if args.execution_results_file:
+        config_data['execution_results_file'] = args.execution_results_file
+
+    # --- Generate the path for the intermediate config file ---
+    db_type_val = config_data.get('db_type')
+    eval_data_file_val = config_data.get('eval_data_file')
+
+    if not db_type_val or not eval_data_file_val:
+        print("Error: 'db_type' and 'eval_data_file' must be defined in the final configuration.")
+        sys.exit(1)
+
+    # Derive {input_output} from the eval_data_file path
+    base_name = os.path.basename(eval_data_file_val)
+    input_output_name, _ = os.path.splitext(base_name)
+
+    # Construct the full path for the new config file
+    cache_dir = f"./cache/{db_type_val}"
+    os.makedirs(cache_dir, exist_ok=True)  # Ensure the directory exists
+    intermediate_config_path = os.path.join(cache_dir, f"tmp_config_{input_output_name}.yaml")
     
+    print(f"\nGenerating intermediate configuration at: {intermediate_config_path}")
+
+    # Write the merged config to the new path
+    with open(intermediate_config_path, 'w', encoding='utf-8') as f:
+        yaml.dump(config_data, f, allow_unicode=True)
+
+    # --- Run pipeline stages using the generated config file ---
     success = True
     
     if args.all or args.execute:
         # Stage 1: SQL Execution
-        cmd = f"python sql_executor.py --config {args.config}"
+        cmd = f"python sql_executor.py --config {intermediate_config_path}"
         if args.no_service_management:
             cmd += " --no-service-management"
             
@@ -151,7 +222,7 @@ Examples:
     
     if args.all or args.evaluate:
         # Stage 2: Evaluation
-        cmd = f"python evaluate_results.py --config {args.config}"
+        cmd = f"python evaluate_results.py --config {intermediate_config_path}"
         if args.execution_results:
             cmd += f" --execution-results {args.execution_results}"
         
@@ -172,7 +243,7 @@ Examples:
             print("Run 'python run_eval_pipeline.py --evaluate' to compute metrics.")
         elif args.evaluate:
             print("Evaluation stage completed.")
-        print(f"Check the output files specified in {args.config}")
+        print(f"Check the output files specified in your final configuration.")
 
 if __name__ == "__main__":
     main()

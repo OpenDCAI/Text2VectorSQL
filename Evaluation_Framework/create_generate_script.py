@@ -113,7 +113,7 @@ if __name__ == '__main__':
 
     MODES = [
         'api', 
-        # 'vllm'
+        'vllm'
     ]
     
     DATASETS = [

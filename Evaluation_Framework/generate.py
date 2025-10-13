@@ -22,7 +22,8 @@ from regex import P
 from tqdm import tqdm
 import time
 import requests
-import yaml  # 导入 yaml 库
+import yaml
+import hashlib # 导入 hashlib
 
 try:
     from vllm import LLM, SamplingParams
@@ -161,8 +162,6 @@ def parse_arguments():
     sampling_group.add_argument('--temperature', type=float, help='采样温度')
     sampling_group.add_argument('--top_p', type=float, help='nucleus 采样参数')
     sampling_group.add_argument('--top_k', type=int, help='top-k 采样参数')
-    
-    parser.add_argument('--save_interval', type=int, help='每处理多少条数据保存一次中间结果')
     
     # 解析命令行参数
     args, unknown = parser.parse_known_args()
@@ -310,14 +309,18 @@ def _fallback_extract_sql(response: str) -> Optional[str]:
     return None
 
 
+def get_query_id(item: Dict[str, Any]) -> str:
+    """为数据项生成一个唯一的 ID，用于缓存"""
+    if 'query_id' in item and item['query_id']:
+        return str(item['query_id'])
+    else:
+        query_text = f"{item.get('db_id', '')}_{item.get('question', '')}"
+        return hashlib.md5(query_text.encode()).hexdigest()[:16]
+
+
 def format_for_eval_framework(item: Dict[str, Any], generated_sql: Optional[str], reasoning: Optional[str] = None) -> Dict[str, Any]:
     """格式化输出以适配评测框架"""
-    if 'query_id' not in item:
-        import hashlib
-        query_text = f"{item.get('db_id', '')}_{item.get('question', '')}"
-        query_id = hashlib.md5(query_text.encode()).hexdigest()[:16]
-    else:
-        query_id = item['query_id']
+    query_id = get_query_id(item)
     
     result = {
         'query_id': query_id,
@@ -370,8 +373,8 @@ class VLLMGenerator:
         self.llm = LLM(**llm_kwargs)
         print("✓ 模型加载完成\n")
     
-    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, save_interval: int = 50, output_path: Optional[str] = None) -> List[Dict[str, Any]]:
-        """批量生成预测"""
+    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, cache_dir: str = "cache") -> List[Dict[str, Any]]:
+        """批量生成预测，并将每个结果保存到缓存"""
         sampling_params = SamplingParams(
             temperature=temperature,
             max_tokens=max_tokens,
@@ -381,7 +384,7 @@ class VLLMGenerator:
         )
         
         print(f"开始批量生成...")
-        print(f"  数据集大小: {len(dataset)}")
+        print(f"  本次待处理数据大小: {len(dataset)}")
         print(f"  采样参数: temperature={temperature}, max_tokens={max_tokens}\n")
         
         prompts=[]
@@ -393,31 +396,35 @@ class VLLMGenerator:
         print("正在进行批量推理...")
         outputs = self.llm.generate(prompts, sampling_params)
         
-        results = []
+        new_results = []
         successful_count = 0
         
-        print("\n正在处理生成结果...")
+        print("\n正在处理生成结果并写入缓存...")
         for i, (item, output) in enumerate(tqdm(zip(dataset, outputs), total=len(dataset))):
             response_text = output.outputs[0].text
             extracted_sql, reasoning = extract_sql_from_json_response(response_text)
             
             result = format_for_eval_framework(item, extracted_sql, reasoning)
-            results.append(result)
-            
+            new_results.append(result)
+
+            # 新增：将单个结果保存到缓存目录
+            try:
+                result_path = os.path.join(cache_dir, f"{result['query_id']}.json")
+                with open(result_path, 'w', encoding='utf-8') as f:
+                    json.dump(result, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                print(f"\n警告: 无法将结果 {result.get('query_id')} 保存到缓存: {e}")
+
             if extracted_sql:
                 successful_count += 1
-            
-            if output_path and (i + 1) % save_interval == 0:
-                save_intermediate_results(results, output_path, i + 1)
         
-        print(f"\n=== 生成完成 ===")
-        print(f"总数据量: {len(dataset)}")
-        print(f"成功提取 SQL: {successful_count}")
-        print(f"成功率: {successful_count/len(dataset):.2%}")
+        print(f"\n=== 本次运行生成完成 ===")
+        print(f"  处理数据量: {len(dataset)}")
+        print(f"  成功提取 SQL: {successful_count}")
+        if len(dataset) > 0:
+            print(f"  成功率: {successful_count/len(dataset):.2%}")
         
-        remove_intermediate_results(output_path)
-        
-        return results
+        return new_results
 
 
 class APIGenerator:
@@ -456,117 +463,70 @@ class APIGenerator:
                     return None
         return None
     
-    def _process_single_item(self, item: Dict[str, Any], index: int, max_tokens: int, temperature: float, top_p: float) -> Dict[str, Any]:
+    def _process_single_item(self, item: Dict[str, Any], max_tokens: int, temperature: float, top_p: float) -> Dict[str, Any]:
         """处理单个数据项"""
         if 'input' not in item:
-            raise ValueError("数据项缺少 'schema' 键")
-        prompt=item['input']
+            raise ValueError("数据项缺少 'input' 键")
+        prompt = item['input']
         response_text = self._call_api(prompt, max_tokens, temperature, top_p)
         
-        extracted_sql = None
-        reasoning = None
+        extracted_sql, reasoning = None, None
         if response_text:
             extracted_sql, reasoning = extract_sql_from_json_response(response_text)
         
         return format_for_eval_framework(item, extracted_sql, reasoning)
     
-    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, num_threads: int = 5, save_interval: int = 50, output_path: Optional[str] = None) -> List[Dict[str, Any]]:
-        """多线程批量生成"""
+    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, num_threads: int = 5, cache_dir: str = "cache") -> List[Dict[str, Any]]:
+        """多线程批量生成，并将每个结果保存到缓存"""
         print(f"\n开始多线程生成...")
-        print(f"  数据集大小: {len(dataset)}")
+        print(f"  本次待处理数据大小: {len(dataset)}")
         print(f"  并发线程数: {num_threads}")
         print(f"  采样参数: temperature={temperature}, max_tokens={max_tokens}\n")
         
-        results = [None] * len(dataset)
+        # 使用字典来保证最终结果的顺序与输入一致
+        results_map = {}
         successful_count = 0
         lock = Lock()
         
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            futures = {executor.submit(self._process_single_item, item, i, max_tokens, temperature, top_p): i for i, item in enumerate(dataset)}
+            # 提交任务，并保留原始索引
+            futures = {executor.submit(self._process_single_item, item, max_tokens, temperature, top_p): index for index, item in enumerate(dataset)}
             
             with tqdm(total=len(dataset), desc="生成进度") as pbar:
                 for future in as_completed(futures):
-                    index = futures[future]
+                    original_index = futures[future]
                     try:
                         result = future.result()
-                        results[index] = result
+                        results_map[original_index] = result
                         
+                        # 新增：将单个结果保存到缓存目录
                         with lock:
+                            try:
+                                result_path = os.path.join(cache_dir, f"{result['query_id']}.json")
+                                with open(result_path, 'w', encoding='utf-8') as f:
+                                    json.dump(result, f, indent=2, ensure_ascii=False)
+                            except Exception as e:
+                                print(f"\n警告: 无法将结果 {result.get('query_id')} 保存到缓存: {e}")
+                            
                             if result['predicted_sql']:
                                 successful_count += 1
-                        
-                        if output_path and (index + 1) % save_interval == 0:
-                            with lock:
-                                completed_results = [r for r in results if r is not None]
-                                save_intermediate_results(completed_results, output_path, index + 1)
+                                
                     except Exception as e:
-                        print(f"  ✗ 处理第 {index} 条数据时出错: {e}")
+                        print(f"  ✗ 处理第 {original_index} 条数据时出错: {e}")
                     
                     pbar.update(1)
+
+        # 按原始顺序重新组合结果列表
+        new_results = [results_map[i] for i in sorted(results_map.keys())]
         
-        print(f"\n=== 生成完成 ===")
-        print(f"总数据量: {len(dataset)}")
-        print(f"成功提取 SQL: {successful_count}")
-        print(f"成功率: {successful_count/len(dataset):.2%}")
+        print(f"\n=== 本次运行生成完成 ===")
+        print(f"  处理数据量: {len(dataset)}")
+        print(f"  成功提取 SQL: {successful_count}")
+        if len(dataset) > 0:
+            print(f"  成功率: {successful_count/len(dataset):.2%}")
         
-        return [r for r in results if r is not None]
+        return new_results
 
-
-def save_intermediate_results(results: List[Dict[str, Any]], output_path: str, count: int):
-    """保存中间结果"""
-    temp_path = output_path.replace('.json', f'.temp_{count}.json')
-    with open(temp_path, 'w', encoding='utf-8') as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-
-def remove_intermediate_results(output_path: str):
-    """
-    Deletes intermediate result files generated by save_intermediate_results.
-
-    It finds and removes all files in the same directory as the final output
-    that match the pattern '.temp_COUNT.json'.
-
-    Args:
-        output_path: The path to the final output file, used to determine
-                     the naming pattern and location of intermediate files.
-    """
-    if not output_path or not isinstance(output_path, str):
-        print("Warning: Invalid output path provided for cleanup. Skipping.")
-        return
-
-    output_dir = os.path.dirname(output_path)
-    if not output_dir:
-        output_dir = '.' # Default to the current directory if path has no directory part
-
-    if not os.path.isdir(output_dir):
-        # If the directory doesn't exist, there's nothing to clean up.
-        return
-
-    # Extract the base name of the output file without the '.json' extension
-    base_name = os.path.basename(output_path)
-    file_prefix = base_name.replace('.json', '')
-
-    # Create a regular expression to match the temporary files.
-    # re.escape ensures that any special characters in the filename are treated literally.
-    pattern = re.compile(f"^{re.escape(file_prefix)}\.temp_\d+\.json$")
-
-    deleted_count = 0
-    print("\nCleaning up intermediate result files...")
-
-    # Iterate over all files in the directory
-    for filename in os.listdir(output_dir):
-        if pattern.match(filename):
-            file_to_delete = os.path.join(output_dir, filename)
-            try:
-                os.remove(file_to_delete)
-                print(f"  - Deleted: {filename}")
-                deleted_count += 1
-            except OSError as e:
-                print(f"  ✗ Error deleting file {filename}: {e}")
-
-    if deleted_count > 0:
-        print(f"✓ Cleanup complete. Removed {deleted_count} temporary file(s).")
-    else:
-        print("✓ No intermediate files found to clean up.")
 
 def save_results(results: List[Dict[str, Any]], output_path: str):
     """保存最终结果"""
@@ -574,13 +534,19 @@ def save_results(results: List[Dict[str, Any]], output_path: str):
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
     
-    print(f"\n正在保存结果到: {output_path}")
+    print(f"\n正在保存 {len(results)} 条最终结果到: {output_path}")
+    # 按照 query_id 排序以确保输出文件的一致性
+    results.sort(key=lambda x: x.get('query_id', ''))
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
     
     print(f"✓ 结果已保存: {output_path}")
     
     total = len(results)
+    if total == 0:
+        print("\n最终统计: 没有可统计的结果。")
+        return
+
     successful = sum(1 for r in results if r.get('predicted_sql'))
     print(f"\n最终统计:")
     print(f"  总查询数: {total}")
@@ -593,58 +559,95 @@ def main():
     """主函数"""
     args = parse_arguments()
     
+    # 定义并创建缓存目录
+    CACHE_DIR = "cache"
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    
     try:
         if not args.dataset:
             raise ValueError("数据集文件路径 --dataset 未指定")
+        if not args.output:
+            raise ValueError("输出文件路径 --output 未指定")
+
         dataset = load_benchmark_dataset(args.dataset)
         
-        if args.mode == 'vllm':
-            if not args.model_path:
-                raise ValueError("vLLM 模式需要指定 --model_path")
-            
-            generator = VLLMGenerator(
-                model_path=args.model_path,
-                tensor_parallel_size=args.tensor_parallel_size,
-                gpu_memory_utilization=args.gpu_memory_utilization,
-                max_model_len=args.max_model_len,
-                trust_remote_code=args.trust_remote_code
-            )
-            
-            results = generator.generate(
-                dataset=dataset,
-                max_tokens=args.max_tokens,
-                temperature=args.temperature,
-                top_p=args.top_p,
-                top_k=args.top_k,
-                save_interval=args.save_interval,
-                output_path=args.output
-            )
-            
-        elif args.mode == 'api':
-            if not args.api_url or not args.api_key or not args.model_name:
-                raise ValueError("API 模式需要指定 --api_url, --api_key 和 --model_name")
-            
-            generator = APIGenerator(
-                api_url=args.api_url,
-                api_key=args.api_key,
-                model_name=args.model_name,
-                timeout=args.api_timeout,
-                retry_times=args.retry_times
-            )
-            
-            results = generator.generate(
-                dataset=dataset,
-                max_tokens=args.max_tokens,
-                temperature=args.temperature,
-                top_p=args.top_p,
-                num_threads=args.num_threads,
-                save_interval=args.save_interval,
-                output_path=args.output
-            )
-        else:
-            raise ValueError(f"未知模式: {args.mode}")
+        # --- 中断恢复逻辑 ---
+        print(f"\n正在从 '{CACHE_DIR}' 目录加载缓存...")
+        cached_results = []
+        processed_ids = set()
+        for filename in os.listdir(CACHE_DIR):
+            if filename.endswith('.json'):
+                file_path = os.path.join(CACHE_DIR, filename)
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        if 'query_id' in data:
+                            cached_results.append(data)
+                            processed_ids.add(data['query_id'])
+                        else:
+                            print(f"  - 警告: 缓存文件 {filename} 缺少 'query_id'，已跳过。")
+                except (json.JSONDecodeError, IOError) as e:
+                    print(f"  - 警告: 无法加载或解析缓存文件 {filename}: {e}，已跳过。")
+
+        if cached_results:
+            print(f"✓ 成功加载 {len(cached_results)} 条已处理的数据。")
+
+        # 过滤出未处理的数据项
+        items_to_process = [item for item in dataset if get_query_id(item) not in processed_ids]
+
+        print(f"\n总计 {len(dataset)} 条数据，其中 {len(items_to_process)} 条需要处理。")
         
-        save_results(results, args.output)
+        new_results = []
+        if not items_to_process:
+            print("所有数据均已处理完毕。")
+        else:
+            if args.mode == 'vllm':
+                if not args.model_path:
+                    raise ValueError("vLLM 模式需要指定 --model_path")
+                
+                generator = VLLMGenerator(
+                    model_path=args.model_path,
+                    tensor_parallel_size=args.tensor_parallel_size,
+                    gpu_memory_utilization=args.gpu_memory_utilization,
+                    max_model_len=args.max_model_len,
+                    trust_remote_code=args.trust_remote_code
+                )
+                
+                new_results = generator.generate(
+                    dataset=items_to_process,
+                    max_tokens=args.max_tokens,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    top_k=args.top_k,
+                    cache_dir=CACHE_DIR
+                )
+                
+            elif args.mode == 'api':
+                if not args.api_url or not args.api_key or not args.model_name:
+                    raise ValueError("API 模式需要指定 --api_url, --api_key 和 --model_name")
+                
+                generator = APIGenerator(
+                    api_url=args.api_url,
+                    api_key=args.api_key,
+                    model_name=args.model_name,
+                    timeout=args.api_timeout,
+                    retry_times=args.retry_times
+                )
+                
+                new_results = generator.generate(
+                    dataset=items_to_process,
+                    max_tokens=args.max_tokens,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    num_threads=args.num_threads,
+                    cache_dir=CACHE_DIR
+                )
+            else:
+                raise ValueError(f"未知模式: {args.mode}")
+
+        # 合并缓存的结果和新生成的结果
+        final_results = cached_results + new_results
+        save_results(final_results, args.output)
         
         print("\n✓ 全部完成！")
         print(f"\n接下来可以运行评测:")
