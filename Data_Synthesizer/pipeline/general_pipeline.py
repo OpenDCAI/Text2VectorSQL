@@ -13,7 +13,7 @@ os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # 只需要修改这里，就可以加载不同的数据集配置！
 DATASET_BACKEND = "postgresql" # "clickhouse"
-DATASET_TO_LOAD = "bird" # "synthesis_data" 
+DATASET_TO_LOAD = "synthesis_data" # "synthesis_data" 
 # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
 
 # 获取当前文件的绝对路径
@@ -271,19 +271,18 @@ def main():
 
 
 
-    #下面的算子只有训练数据集需要
-    print("################################################")
-    print("生成合成cot提示词")
-    generate_cot_prompts(config.paths.gene_cot_prompts_dataset_json_path,config.paths.gene_cot_prompts_tables_json_path,config.paths.gene_cot_prompts_prompt_tamplate_path,config.paths.gene_cot_prompts_output_prompt_path)
+    # #下面的算子只有训练数据集需要
+    # print("################################################")
+    # print("生成合成cot提示词")
+    # generate_cot_prompts(config.paths.gene_cot_prompts_dataset_json_path,config.paths.gene_cot_prompts_tables_json_path,config.paths.gene_cot_prompts_prompt_tamplate_path,config.paths.gene_cot_prompts_output_prompt_path, config.parameters.dataset_backend, config.services.openai.get('embedding_model_name'))
 
-    print("################################################")
-    print("合成cot")
-    synthesize_cot(config.paths.gene_cot_prompts_output_prompt_path,config.paths.synthesize_cot_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.max_workers,config.paths.cache_file_path_cot,5,0.8, config.parameters.dataset_backend)
+    # print("################################################")
+    # print("合成cot")
+    # synthesize_cot(config.paths.gene_cot_prompts_output_prompt_path,config.paths.synthesize_cot_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.max_workers,config.paths.cache_file_path_cot,5,0.8, config.parameters.dataset_backend)
 
-    print("################################################")
-    print("选择合适的cot，并且过滤可以成功运行的sql")
-    post_process_cot(config.paths.post_process_cot_results_path,config.paths.post_process_cot_output_dir, config.parameters.dataset_backend)
-    # post_process_cot(config.paths.post_process_cot_results_path,config.paths.post_process_cot_db_dir,config.paths.post_process_cot_output_dir,config.services.embed.get('api_url'),config.services.openai.get('embedding_model_name'))
+    # print("################################################")
+    # print("选择合适的cot，并且过滤可以成功运行的sql")
+    # post_process_cot(config.paths.post_process_cot_results_path,config.paths.post_process_cot_output_dir, config.parameters.dataset_backend)
 
 
 
@@ -293,7 +292,7 @@ def main():
     print("生成llm输入")
     generate_input_llm(config.paths.dataset_json_path_input, config.paths.tables_json_path_input, config.paths.prompt_tamplate_path_infer_input, config.paths.output_path_input,config.parameters.dataset_backend, config.paths.database_note_prompt_path,config.services.openai.get('embedding_model_name'))
 
-    # # 下面的算子是生成llm的输入输出对, 给我llm做微调用的（只有训练数据需要）
+    # # 下面的算子是生成llm的输入输出对, 给我llm做微调用的（只有训练数据需要）（弃用）
     # print("################################################")
     # print("生成llm输出")
     # generate_output_llm(config.paths.output_path_input, config.paths.output_llm_train_path)

@@ -49,34 +49,44 @@ def execute_with_engine(data_idx, db_id, original_sql, engine, db_type):
     else:
         # 执行失败
         error_message = result.get('message', 'Unknown execution error')
+        print(f"Execution error for db_id {db_id}, SQL: {original_sql}. Error: {error_message}")
         return data_idx, db_id, original_sql, error_message, 0
-
-def execute_sql_wrapper(data_idx, db_id, original_sql, engine, db_type, timeout):
-    """
-    带超时的 SQL 执行包装器，调用 ExecutionEngine。
-    """
-    try:
-        return func_timeout(timeout, execute_with_engine, args=(data_idx, db_id, original_sql, engine, db_type))
-    except KeyboardInterrupt:
-        sys.exit(0)
-    except FunctionTimedOut:
-        return data_idx, db_id, original_sql, "Timeout", 0
-    except Exception as e:
-        return data_idx, db_id, original_sql, f"Wrapper Exception: {e}", 0
 
 def execute_sqls_parallel(db_ids, original_sqls, engine, db_type, num_cpus=1, timeout=1):
     """
-    使用 ExecutionEngine 并行执行 SQL 查询。
+    使用 ExecutionEngine 并行执行 SQL 查询，并使用 Pool 自带的超时机制。
     """
     pool = mp.Pool(processes=num_cpus)
     tasks = []
+    # 注意：这里我们直接把 execute_with_engine 提交给子进程
     for data_idx, (db_id, original_sql) in enumerate(zip(db_ids, original_sqls)):
         if original_sql:
-             tasks.append(pool.apply_async(execute_sql_wrapper, args=(data_idx, db_id, original_sql, engine, db_type, timeout)))
+             tasks.append(
+                 (
+                     (data_idx, db_id, original_sql), # 原始信息，用于处理超时或错误
+                     pool.apply_async(execute_with_engine, args=(data_idx, db_id, original_sql, engine, db_type))
+                 )
+             )
+    
+    results = []
+    for original_info, res in tqdm(tasks, desc="Executing SQLs"):
+        data_idx, db_id, original_sql = original_info
+        try:
+            # 在这里设置超时！
+            # res.get() 会等待子进程完成，如果超过 timeout 秒，就会抛出 multiprocessing.TimeoutError
+            result = res.get(timeout=timeout)
+            results.append(result)
+        except mp.TimeoutError:
+            print(f"Timeout error for db_id {db_id}, SQL: {original_sql}")
+            results.append((data_idx, db_id, original_sql, "Timeout", 0))
+        except Exception as e:
+            # 捕获在子进程中发生的其他异常
+            print(f"Wrapper Exception for db_id {db_id}, SQL: {original_sql}. Error: {e}")
+            results.append((data_idx, db_id, original_sql, f"Wrapper Exception: {e}", 0))
+
     pool.close()
     pool.join()
-    return [res.get() for res in tasks]
-
+    return results
 def load_json_file(file):
     """使用 ijson 流式加载大型 JSON 文件"""
     if not os.path.exists(file):
@@ -156,26 +166,42 @@ def post_process_cot(results_path, output_dir, db_type="sqlite"):
             
             if valid_cot_num < 3:
                 major_voting_filter_num += 1
+                print(f"Valid COT num: {valid_cot_num} < 3, skip this sample.")
                 continue
             
             if not major_voting_dict:
                 major_voting_filter_num += 1
+                print("No valid SQL executions, skip this sample.")
                 continue
 
             voting_key = max(major_voting_dict, key=lambda k: len(major_voting_dict[k]))
             final_cot = random.choice(major_voting_dict[voting_key])
 
-            major_voting_results.append({
-                "db_id": cot_result["db_id"],
-                "sql_complexity": cot_result["sql_complexity"],
-                "question_style": cot_result["question_style"],
-                "sql_explanation": cot_result["sql_explanation"],
-                "question": cot_result["question"],
-                "sql_candidate": cot_result["sql_candidate"],
-                "external_knowledge": cot_result["external_knowledge"],
-                "cot": final_cot,
-                "sql": parse_response(final_cot)
-            })
+            if 'schema' in cot_result:
+                major_voting_results.append({
+                    "db_id": cot_result["db_id"],
+                    "sql_complexity": cot_result["sql_complexity"],
+                    "question_style": cot_result["question_style"],
+                    "sql_explanation": cot_result.get("sql_explanation", ""),
+                    "question": cot_result["question"],
+                    "sql_candidate": cot_result["sql_candidate"],
+                    "external_knowledge": cot_result.get("external_knowledge", ""),
+                    "cot": final_cot,
+                    "sql": parse_response(final_cot),
+                    "schema": cot_result["schema"]
+                })
+            else:
+                major_voting_results.append({
+                    "db_id": cot_result["db_id"],
+                    "sql_complexity": cot_result["sql_complexity"],
+                    "question_style": cot_result["question_style"],
+                    "sql_explanation": cot_result.get("sql_explanation", ""),
+                    "question": cot_result["question"],
+                    "sql_candidate": cot_result["sql_candidate"],
+                    "external_knowledge": cot_result.get("external_knowledge", ""),
+                    "cot": final_cot,
+                    "sql": parse_response(final_cot)
+                })
 
     print("major_voting_filter_num:", major_voting_filter_num)
     print("num of data samples (after execution-based major voting):", len(major_voting_results))

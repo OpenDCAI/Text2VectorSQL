@@ -122,7 +122,7 @@ def load_results_by_model_name(root_dir: str, model_name: str,
     
     # 固定的数据库类型和数据集类型
     db_types = ['sqlite', 'postgresql', 'clickhouse']
-    dataset_types = ['bird', 'spider', 'arxiv', 'wiki']
+    dataset_types = ['bird', 'spider', 'arxiv', 'wikipedia_multimodal']
     
     for db_type in db_types:
         metric1_dict[db_type] = {}
@@ -313,13 +313,13 @@ def generate_structured_csv(metric1_results: Dict[str, Dict[str, Dict[str, float
     # 添加表头行2: 数据集类型
     header_row2 = ['']
     for _ in range(3):  # 三个数据库
-        header_row2.extend(['BIRD', 'Spider', 'arXiv', 'wikipedia_multimodal'])
+        header_row2.extend(['BIRD', 'Spider', 'arXiv', 'Wiki'])
     header_row2.append('')
     rows.append(header_row2)
     
     # 添加指标说明行
-    metric_row = [f'({metric1_name} / {metric2_name}, in %)'] + [''] * 12 + ['']
-    rows.append(metric_row)
+    #metric_row = [f'({metric1_name} / {metric2_name}, in %)'] + [''] * 12 + ['']
+    #rows.append(metric_row)
     
     # 添加各个类别的模型
     category_order = [

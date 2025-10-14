@@ -98,7 +98,7 @@ def llm_inference(dataset, api_key, base_url, llm_model_name, max_workers, cache
                     "You are an expert SQLite data analyst working with a database that has a vector search extension. "
                     "Your task is to generate a step-by-step thinking process (Chain-of-Thought) to arrive at a SQL query for a given question and database schema. "
                     "For vector similarity searches, you MUST use the exact syntax: "
-                    "`vector_column MATCH lembed('model_name', 'search_text') AND k = N`, "
+                    "`vector_column MATCH lembed('embed_model_name', 'search_text') AND k = N`, "
                     "where `k` is the number of nearest neighbors to find. Do not use other operators like `<->`. "
                     "**Crucially, you MUST conclude your response with the final, complete SQL query enclosed in a markdown "
                     "code block like this: ```sql\\n[YOUR SQL QUERY HERE]\\n```**. "
@@ -109,7 +109,7 @@ def llm_inference(dataset, api_key, base_url, llm_model_name, max_workers, cache
                     "You are an expert PostgreSQL data analyst working with a database that has the `pgvector` extension. "
                     "Your task is to generate a step-by-step thinking process (Chain-of-Thought) to arrive at a SQL query for a given question and database schema. "
                     "For vector similarity searches, you MUST use the L2 distance operator `<->`. The query structure must calculate the distance in the SELECT clause and use it for ordering: "
-                    "`SELECT ..., vector_column <-> lembed('model_name', 'search_text') AS distance FROM table_name ORDER BY distance LIMIT N`. "
+                    "`SELECT ..., vector_column <-> lembed('embed_model_name', 'search_text') AS distance FROM table_name ORDER BY distance LIMIT N`. "
                     "**Crucially, you MUST conclude your response with the final, complete SQL query enclosed in a markdown "
                     "code block like this: ```sql\n[YOUR SQL QUERY HERE]\n```**. "
                     "Do not include any explanation after the final SQL code block."
@@ -118,8 +118,8 @@ def llm_inference(dataset, api_key, base_url, llm_model_name, max_workers, cache
                 system_prompt = (
                     "You are an expert ClickHouse data analyst working with a database that has built-in vector search capabilities. "
                     "Your task is to generate a step-by-step thinking process (Chain-of-Thought) to arrive at a SQL query for a given question and database schema. "
-                    "For vector similarity searches, you MUST use a `WITH` clause for the reference vector and a distance function (e.g., `L2Distance`). The exact syntax pattern is: "
-                    "`WITH lembed('model_name', 'search_text') AS ref_vec SELECT ..., L2Distance(vector_column, ref_vec) AS distance FROM table_name ORDER BY distance LIMIT N`. "
+                    "For vector similarity searches, you MUST use a `WITH` clause for the reference vector and a distance function (e.g., `L2Distance`). The query syntax is: "
+                    "`WITH lembed('embed_model_name', 'search_text') AS ref_vec SELECT ..., L2Distance(vector_column, ref_vec) AS distance FROM table_name ORDER BY distance LIMIT N`. "
                     "**Crucially, you MUST conclude your response with the final, complete SQL query enclosed in a markdown "
                     "code block like this: ```sql\n[YOUR SQL QUERY HERE]\n```**. "
                     "Do not include any explanation after the final SQL code block."
@@ -232,7 +232,7 @@ def synthesize_cot(
         max_workers=max_workers,
         cache_file_path=cache_file_path,
         num_responses=num_responses,
-        temperature=temperature
+        temperature=temperature,
         db_type=db_type
     )
 

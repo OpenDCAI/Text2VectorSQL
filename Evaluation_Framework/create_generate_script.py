@@ -107,8 +107,8 @@ if __name__ == '__main__':
     
     DATABASE_BACKENDS = [
         'sqlite',
-        # 'clickhouse',
-        # 'postgre'
+        'clickhouse',
+        'postgresql'
     ]
 
     MODES = [
@@ -117,9 +117,9 @@ if __name__ == '__main__':
     ]
     
     DATASETS = [
-        # 'arxiv', 
-        # 'bird', 
-        # 'spider',
+        'arxiv', 
+        'bird', 
+        'spider',
         'wikipedia_multimodal'
     ]
     

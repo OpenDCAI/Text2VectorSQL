@@ -108,7 +108,8 @@ if __name__ == '__main__':
 
     DB_TYPES = [
         'sqlite',
-        # 'clickhouse'
+        'clickhouse',
+        'postgresql'
     ]
     
     API_MODELS = [

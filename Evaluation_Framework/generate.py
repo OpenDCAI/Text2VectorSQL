@@ -24,6 +24,7 @@ import time
 import requests
 import yaml
 import hashlib # 导入 hashlib
+from pathlib import Path
 
 try:
     from vllm import LLM, SamplingParams
@@ -376,7 +377,7 @@ class VLLMGenerator:
         self.llm = LLM(**llm_kwargs)
         print("✓ 模型加载完成\n")
     
-    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, cache_dir: str = "cache") -> List[Dict[str, Any]]:
+    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, cache_dir: str = "cache", database_backend: str = "sqlite", dataset_name: str= "bird") -> List[Dict[str, Any]]:
         """批量生成预测，并将每个结果保存到缓存"""
         sampling_params = SamplingParams(
             temperature=temperature,
@@ -412,7 +413,7 @@ class VLLMGenerator:
 
             # 新增：将单个结果保存到缓存目录
             try:
-                result_path = os.path.join(cache_dir, f"{result['query_id']}.json")
+                result_path = os.path.join(cache_dir, database_backend, dataset_name, f"{result['query_id']}.json")
                 with open(result_path, 'w', encoding='utf-8') as f:
                     json.dump(result, f, indent=2, ensure_ascii=False)
             except Exception as e:
@@ -479,7 +480,7 @@ class APIGenerator:
         
         return format_for_eval_framework(item, extracted_sql, reasoning)
     
-    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, num_threads: int = 5, cache_dir: str = "cache") -> List[Dict[str, Any]]:
+    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, num_threads: int = 5, cache_dir: str = "cache", database_backend: str = "sqlite", dataset_name: str= "bird") -> List[Dict[str, Any]]:
         """多线程批量生成，并将每个结果保存到缓存"""
         print(f"\n开始多线程生成...")
         print(f"  本次待处理数据大小: {len(dataset)}")
@@ -505,7 +506,7 @@ class APIGenerator:
                         # 新增：将单个结果保存到缓存目录
                         with lock:
                             try:
-                                result_path = os.path.join(cache_dir, f"{result['query_id']}.json")
+                                result_path = os.path.join(cache_dir, database_backend, dataset_name, f"{result['query_id']}.json")
                                 with open(result_path, 'w', encoding='utf-8') as f:
                                     json.dump(result, f, indent=2, ensure_ascii=False)
                             except Exception as e:
@@ -574,27 +575,39 @@ def main():
             raise ValueError("输出文件路径 --output 未指定")
 
         dataset = load_benchmark_dataset(args.dataset)
+
+        place_dataset = Path(args.dataset)
+
+        dataset_name = place_dataset.parent.name
+        print(f"数据集名称: {dataset_name}")
+        database_backends = place_dataset.parts[-4]
+        print(f"数据库后端: {database_backends}")
+
         
-        # --- 中断恢复逻辑 ---
-        print(f"\n正在从 '{CACHE_DIR}' 目录加载缓存...")
+        # --- 中断恢复逻辑 (已更新) ---
+        print(f"\n正在从 '{CACHE_DIR}' 目录及其子目录加载缓存...")
         cached_results = []
         processed_ids = set()
-        for filename in os.listdir(CACHE_DIR):
-            if filename.endswith('.json'):
-                file_path = os.path.join(CACHE_DIR, filename)
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        if 'query_id' in data:
-                            cached_results.append(data)
-                            processed_ids.add(data['query_id'])
-                        else:
-                            print(f"  - 警告: 缓存文件 {filename} 缺少 'query_id'，已跳过。")
-                except (json.JSONDecodeError, IOError) as e:
-                    print(f"  - 警告: 无法加载或解析缓存文件 {filename}: {e}，已跳过。")
+        # 使用 os.walk 递归遍历所有目录和文件
+        for root, _, files in os.walk(CACHE_DIR):
+            for filename in files:
+                if filename.endswith('.json'):
+                    file_path = os.path.join(root, filename)
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            if 'query_id' in data:
+                                # 检查 ID 是否已处理，防止重复加载（虽然不太可能发生）
+                                if data['query_id'] not in processed_ids:
+                                    cached_results.append(data)
+                                    processed_ids.add(data['query_id'])
+                            else:
+                                print(f"  - 警告: 缓存文件 {filename} 缺少 'query_id'，已跳过。")
+                    except (json.JSONDecodeError, IOError) as e:
+                        print(f"  - 警告: 无法加载或解析缓存文件 {filename}: {e}，已跳过。")
 
-        if cached_results:
-            print(f"✓ 成功加载 {len(cached_results)} 条已处理的数据。")
+                if cached_results:
+                    print(f"✓ 成功加载 {len(cached_results)} 条已处理的数据。")
 
         # 过滤出未处理的数据项
         items_to_process = [item for item in dataset if get_query_id(item) not in processed_ids]
@@ -614,7 +627,7 @@ def main():
                     tensor_parallel_size=args.tensor_parallel_size,
                     gpu_memory_utilization=args.gpu_memory_utilization,
                     max_model_len=args.max_model_len,
-                    trust_remote_code=args.trust_remote_code
+                    trust_remote_code=args.trust_remote_code,            
                 )
                 
                 new_results = generator.generate(
@@ -623,7 +636,9 @@ def main():
                     temperature=args.temperature,
                     top_p=args.top_p,
                     top_k=args.top_k,
-                    cache_dir=CACHE_DIR
+                    cache_dir=CACHE_DIR,
+                    database_backend=database_backends,
+                    dataset_name=dataset_name
                 )
                 
             elif args.mode == 'api':
@@ -644,7 +659,9 @@ def main():
                     temperature=args.temperature,
                     top_p=args.top_p,
                     num_threads=args.num_threads,
-                    cache_dir=CACHE_DIR
+                    cache_dir=CACHE_DIR,
+                    database_backend=database_backends,
+                    dataset_name=dataset_name
                 )
             else:
                 raise ValueError(f"未知模式: {args.mode}")

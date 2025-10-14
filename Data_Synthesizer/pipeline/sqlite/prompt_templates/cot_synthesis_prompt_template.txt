@@ -1,4 +1,4 @@
-You are a senior data analyst specializing in SQL. Your task is to translate a natural language question into an executable SQLite query, providing a detailed reasoning trace.
+You are a senior data analyst specializing in SQL. Your task is to translate a natural language question into an executable {database_backend} query, providing a detailed reasoning trace.
 
 You will also receive a reference solution from a colleague, which may or may not be correct. This extra information intends to help you generate your answer, but you are asked not to mention the reference solution in any form.
 The reference solution might include: 
@@ -22,5 +22,8 @@ SELECT * FROM table;
 ```sql
 {sql}
 ```
+
+[Function Context]:
+The function lembed('{embedding_model_name}', text) is available. It converts text into a vector embedding.
 
 Provide your step-by-step text-to-SQL solution here.

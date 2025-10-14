@@ -1,21 +1,21 @@
-There are a few Requirements you should Comply with in addition:
-1. When generating SQL queries, you should prioritize utilizing K-Nearest Neighbor (KNN) searches whenever contextually appropriate, specifically for semantic or similarity-based searches. However, you must avoid unnecessary/forced KNN implementations for:
-Traditional relational data queries (especially for columns like: id, age, price).
+There are a few requirements you should comply with in addition:
+1. When generating SQL queries, you should prioritize utilizing K-Nearest Neighbor (KNN) searches whenever contextually appropriate. However, you must avoid unnecessary/forced KNN implementations for:
+-- Traditional relational data queries (especially for columns like: id, age, price).
+-- Cases where standard SQL operators (equality, range, or aggregation functions) are more efficient and semantically appropriate.
 2. Only columns with the vector data type support KNN queries. The names of these vector columns often end with "_embedding". You should perform KNN searches when the column name you need to query ends with "_embedding" or is otherwise identified as a vector column.
-3. In PostgreSQL with the pgvector extension, vector similarity search is performed using distance operators. You must calculate the distance in the SELECT clause and give it an alias, typically AS distance. The primary operators are:
+3. In PostgreSQL with the pgvector extension, vector similarity search is performed using distance operators. You must calculate the distance in the SELECT clause and give it an alias, typically "AS distance". The primary operators are:
 <->: L2 (Euclidean) distance. This is the most common operator and is recommended for general-purpose similarity search.
-<=>: Cosine distance. Use this when the direction of the vectors is more important than their magnitude.
-<#>: Negative inner product. Can be used to find the maximum inner product similarity (often used with normalized vectors for cosine similarity).
-4. The lembed function is used to transform a query string into a vector for comparison. This function has two parameters: the first is the name of the embedding model used (default value: '{embedding_model}'), and the second is the string content you want to convert.
+<#>: Negative inner product. Can be used to find the maximum inner product similarity.
+4. The lembed function is used to transform a query string into a semantic vector. This function has two parameters: the first is the name of the embedding model used (default value: '{embedding_model}'), and the second is the string content to embed.
 5. You must generate plausible and semantically relevant words or sentences for the second parameter of the lembed function based on the column's name, type, and comment. For example, if a column is named review_embedding and its comment is "Embedding of the user's review text", you could generate text like "an overwhelmingly positive experience with great customer service".
-6. Every KNN search query MUST conclude with ORDER BY distance LIMIT N to retrieve the top N most similar results. pgvector uses this pattern to leverage specialized indexes (like HNSW) for extremely fast and efficient KNN searches. The LIMIT clause is mandatory.
+6. Every KNN search query MUST conclude with "ORDER BY distance LIMIT N" to retrieve the top-N most similar results. pgvector uses this pattern to leverage specialized indexes (like HNSW) for extremely fast and efficient KNN searches. The LIMIT clause is mandatory.
 7. When combining a vector search with standard JOIN or WHERE clauses, these filters are applied to pre-filter the dataset. The KNN search (ORDER BY distance LIMIT N) is then performed on the filtered results.
-8. A SELECT statement should typically contain only one vector distance operator to perform a single KNN search. However, subqueries can perform their own independent KNN searches, each with its own distance calculation, ORDER BY, and LIMIT clause.
+8. A SELECT statement should typically contain only one vector operator to perform a single KNN search. However, subqueries can perform their own independent KNN searches, each with its own distance calculation, ORDER BY, and LIMIT clause.
 
 ## Example of a PostgreSQL (pgvector) KNN Query
-Given a table products with a column description_embedding vector(384).
+DB Schema: Some table on articles with a column content_embedding vector(384).
 Query Task: Identify the article ID of the single most relevant article discussing innovative algorithms in graph theory.
 Generated SQL:
 ```sql
-    SELECT \"id\", \"articles\".\"abstract_embedding\" <-> lembed('all-MiniLM-L6-v2', 'This abstract discusses innovative algorithms in graph theory.') AS \"distance\"\nFROM \"articles\"\nORDER BY \"distance\"\nLIMIT 1;
+    SELECT \"id\", \"articles\".\"abstract_embedding\" <-> lembed('all-MiniLM-L6-v2', 'innovative algorithms in graph theory.') AS \"distance\"\nFROM \"articles\"\nORDER BY \"distance\"\nLIMIT 1;
 ```
