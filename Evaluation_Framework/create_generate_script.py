@@ -113,13 +113,13 @@ if __name__ == '__main__':
 
     MODES = [
         'api', 
-        'vllm'
+        # 'vllm'
     ]
     
     DATASETS = [
-        'arxiv', 
-        'bird', 
-        'spider',
+        # 'arxiv', 
+        # 'bird', 
+        # 'spider',
         'wikipedia_multimodal'
     ]
     
@@ -130,7 +130,7 @@ if __name__ == '__main__':
     ]
     
     MODEL_PATHS = [
-        '/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct',
+        # '/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct',
         # '/mnt/b_public/data/ydw/model/Llama/Llama-3-70b-chat-hf'
     ]
 

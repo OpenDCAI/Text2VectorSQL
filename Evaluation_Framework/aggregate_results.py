@@ -3,12 +3,25 @@
 aggregate_results.py - Aggregate Multiple Evaluation Reports
 
 This script aggregates evaluation metrics from multiple evaluation report JSON files
-and exports them to a CSV file for easy comparison and analysis.
+and exports them to a structured CSV file for easy comparison and analysis.
+
+Directory structure: results_dir/db_type/dataset_type/evaluation_report_{model_name}.json
+
+Example:
+    results/
+        sqlite/
+            bird/
+                evaluation_report_gpt4.json
+                evaluation_report_qwen2.5-7b.json
+            spider/
+                evaluation_report_gpt4.json
+        postgresql/
+            bird/
+                evaluation_report_gpt4.json
 
 Usage:
-    python aggregate_results.py --input report1.json report2.json report3.json --output summary.csv
-    python aggregate_results.py --input-dir ./reports --output summary.csv
-    python aggregate_results.py --input *.json --output summary.csv --sort-by average_f1_score
+    python aggregate_results.py --results-dir ./results --output structured_results.csv
+    python aggregate_results.py --results-dir ./results --metric1 average_exact_match --metric2 average_recall
 """
 
 import argparse
@@ -17,8 +30,61 @@ import csv
 import sys
 import os
 from pathlib import Path
-from typing import List, Dict, Any
-from collections import OrderedDict
+from typing import List, Dict, Any, Tuple, Optional
+from collections import OrderedDict, defaultdict
+
+
+# 默认模型配置 - 可以在代码中直接修改
+DEFAULT_MODEL_CONFIG = {
+    "closed_source": [
+        {"name": "gpt-4o-mini", "display_name": "GPT-4o-mini"},
+        {"name": "gpt-4-turbo", "display_name": "GPT-4-Turbo"},
+        {"name": "gpt-4o", "display_name": "GPT-4o"},
+    ]
+}
+
+'''
+    "open_7b": [
+        {"name": "dsc-6.7b-instruct", "display_name": "DSC-6.7B-Instruct"},
+        {"name": "qwen2.5-coder-7b-instruct", "display_name": "Qwen2.5-Coder-7B-Instruct"},
+        {"name": "qwen2.5-7b-instruct", "display_name": "Qwen2.5-7B-Instruct"},
+        {"name": "qwen2.5-7b", "display_name": "Qwen2.5-7B-Instruct"},
+        {"name": "opencoder-8b-instruct", "display_name": "OpenCoder-8B-Instruct"},
+        {"name": "meta-llama-3.1-8b-instruct", "display_name": "Meta-Llama-3.1-8B-Instruct"},
+        {"name": "granite-8b-code-instruct", "display_name": "Granite-8B-Code-Instruct"},
+        {"name": "granite-3.1-8b-instruct", "display_name": "Granite-3.1-8B-Instruct"},
+    ],
+    "custom_7b": [
+        {"name": "vectorsql-7b-lora", "display_name": "VectorSQL-7B-LoRA"},
+        {"name": "vectorsql-7b", "display_name": "VectorSQL-7B"},
+    ],
+    "open_14b_32b": [
+        {"name": "qwen2.5-coder-14b-instruct", "display_name": "Qwen2.5-Coder-14B-Instruct"},
+        {"name": "qwen2.5-14b-instruct", "display_name": "Qwen2.5-14B-Instruct"},
+        {"name": "starcoder2-15b-instruct", "display_name": "Starcoder2-15B-Instruct"},
+        {"name": "dsc-v2-lite-instruct", "display_name": "DSC-V2-Lite-In. (16B, MoE)"},
+        {"name": "granite-20b-code-instruct", "display_name": "Granite-20B-Code-Instruct"},
+        {"name": "codestral-22b", "display_name": "Codestral-22B"},
+    ],
+    "custom_14b": [
+        {"name": "vectorsql-14b-lora", "display_name": "VectorSQL-14B-LoRA"},
+        {"name": "vectorsql-14b", "display_name": "VectorSQL-14B"},
+    ],
+    "open_32b_plus": [
+        {"name": "qwen2.5-coder-32b-instruct", "display_name": "Qwen2.5-Coder-32B-Instruct"},
+        {"name": "qwen2.5-32b-instruct", "display_name": "Qwen2.5-32B-Instruct"},
+        {"name": "dsc-33b-instruct", "display_name": "DSC-33B-Instruct"},
+        {"name": "granite-34b-code-instruct", "display_name": "Granite-34B-Code-Instruct"},
+        {"name": "mixtral-8x7b-instruct", "display_name": "Mixtral-8x7B-In. (47B, MoE)"},
+        {"name": "meta-llama-3.1-70b-instruct", "display_name": "Meta-Llama-3.1-70B-Instruct"},
+        {"name": "qwen2.5-72b-instruct", "display_name": "Qwen2.5-72B-Instruct"},
+        {"name": "deepseek-v3", "display_name": "DeepSeek-V3 (671B, MoE)"},
+    ],
+    "custom_32b": [
+        {"name": "vectorsql-32b", "display_name": "VectorSQL-32B"},
+    ],
+'''
+
 
 
 def load_json_file(file_path: str) -> Dict[str, Any]:
@@ -27,247 +93,380 @@ def load_json_file(file_path: str) -> Dict[str, Any]:
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
-        print(f"Error loading {file_path}: {e}")
+        print(f"⚠️  Error loading {file_path}: {e}")
         return None
 
 
-def extract_summary_metrics(report: Dict[str, Any], report_name: str) -> Dict[str, Any]:
+def load_results_by_model_name(root_dir: str, model_name: str, 
+                               metric1_key: str, metric2_key: str) -> Tuple[Dict, Dict]:
     """
-    Extract evaluation summary metrics from a report.
+    根据模型名称从目录结构加载结果
+    
+    目录结构: root_dir/db_type/dataset_type/evaluation_report_{model_name}.json
+    
+    示例路径: results/sqlite/bird/evaluation_report_gpt4.json
     
     Args:
-        report: The evaluation report dictionary
-        report_name: Name/identifier for this report
+        root_dir: 根目录路径
+        model_name: 模型名称（用于构建文件名）
+        metric1_key: 第一个指标键名
+        metric2_key: 第二个指标键名
         
     Returns:
-        Dictionary containing the report name and all summary metrics
+        两个字典的元组: (metric1_dict, metric2_dict)
+        每个字典格式: {db_type: {dataset_type: value}}
     """
-    summary = report.get('evaluation_summary', {})
+    root_path = Path(root_dir)
+    metric1_dict = {}
+    metric2_dict = {}
     
-    # Start with report identifier
-    metrics = OrderedDict()
-    metrics['report_name'] = report_name
+    # 固定的数据库类型和数据集类型
+    db_types = ['sqlite', 'postgresql', 'clickhouse']
+    dataset_types = ['bird', 'spider', 'arxiv', 'wiki']
     
-    # Add all metrics from the summary
-    for key, value in sorted(summary.items()):
-        if isinstance(value, (int, float)):
-            metrics[key] = value
-        elif isinstance(value, str):
-            metrics[key] = value
+    for db_type in db_types:
+        metric1_dict[db_type] = {}
+        metric2_dict[db_type] = {}
+        
+        for dataset_type in dataset_types:
+            # 构建文件路径: results_dir/db_type/dataset_type/evaluation_report_model.json
+            json_path = root_path / db_type / dataset_type / f"evaluation_report_api_{model_name}.json"
+            
+            
+            
+            if not json_path.exists():
+                continue
+            
+            # 加载 JSON 文件
+            report = load_json_file(str(json_path))
+            if report is None:
+                continue
+            
+            # 提取指标
+            summary = report.get('evaluation_summary', {})
+            
+            metric1_value = summary.get(metric1_key, None)
+            metric2_value = summary.get(metric2_key, None)
+            
+            if metric1_value is not None:
+                metric1_dict[db_type][dataset_type] = metric1_value
+            if metric2_value is not None:
+                metric2_dict[db_type][dataset_type] = metric2_value
     
-    return metrics
+    return metric1_dict, metric2_dict
 
 
-def get_all_metric_names(all_metrics: List[Dict[str, Any]]) -> List[str]:
+def load_all_results_from_config(root_dir: str, model_config: Dict[str, List[Dict[str, str]]],
+                                 metric1_key: str, metric2_key: str) -> Tuple[Dict, Dict, Dict]:
     """
-    Get a sorted list of all unique metric names across all reports.
+    根据模型配置加载所有结果
     
     Args:
-        all_metrics: List of metric dictionaries from all reports
+        root_dir: 根目录路径
+        model_config: 模型配置字典
+        metric1_key: 第一个指标键名
+        metric2_key: 第二个指标键名
         
     Returns:
-        Sorted list of unique metric names (excluding 'report_name')
+        三个字典的元组:
+        - metric1_results: {display_name: {db_type: {dataset_type: value}}}
+        - metric2_results: {display_name: {db_type: {dataset_type: value}}}
+        - model_categories: {category: [display_names]}
     """
-    metric_names = set()
-    for metrics in all_metrics:
-        metric_names.update(metrics.keys())
+    metric1_results = {}
+    metric2_results = {}
+    model_categories = {}
     
-    # Remove 'report_name' and sort
-    metric_names.discard('report_name')
-    return sorted(metric_names)
+    # 类别映射
+    category_map = {
+        'closed_source': 'Closed-source LLMs (as a reference)',
+        'open_7b': 'Open-source LLMs (~7B)',
+        'custom_7b': 'custom_7b',
+        'open_14b_32b': 'Open-source LLMs (14B-32B)',
+        'custom_14b': 'custom_14b',
+        'open_32b_plus': 'Open-source LLMs (≥32B)',
+        'custom_32b': 'custom_32b'
+    }
+    
+    for category_key, models in model_config.items():
+        category_name = category_map.get(category_key, category_key)
+        model_categories[category_name] = []
+        
+        for model_info in models:
+            model_name = model_info.get('name')
+            display_name = model_info.get('display_name', model_name)
+            
+            if not model_name:
+                print(f"⚠️  Skipping model with missing 'name' field in category '{category_key}'")
+                continue
+            
+            # 加载该模型的结果
+            metric1_dict, metric2_dict = load_results_by_model_name(
+                root_dir, model_name, metric1_key, metric2_key
+            )
+            
+            # 检查是否有数据
+            has_data = any(
+                len(datasets) > 0 
+                for datasets in metric1_dict.values()
+            )
+            
+            if has_data:
+                metric1_results[display_name] = metric1_dict
+                metric2_results[display_name] = metric2_dict
+                model_categories[category_name].append(display_name)
+                print(f"  ✓ Loaded: {display_name} (from {model_name})")
+            else:
+                print(f"  ⚠️  No data found for: {display_name} (from {model_name})")
+    
+    return metric1_results, metric2_results, model_categories
 
 
-def write_to_csv(all_metrics: List[Dict[str, Any]], output_path: str, sort_by: str = None):
+def format_metric_pair(value1: float, value2: float, precision: int = 1) -> str:
     """
-    Write aggregated metrics to a CSV file.
+    格式化指标对为 "value1 / value2" 格式（百分比）
     
     Args:
-        all_metrics: List of metric dictionaries
-        output_path: Path to the output CSV file
-        sort_by: Optional metric name to sort by (descending)
+        value1: 第一个指标值（0-1之间）
+        value2: 第二个指标值（0-1之间）
+        precision: 小数位数
+        
+    Returns:
+        格式化的字符串，如 "45.6 / 78.9"
     """
-    if not all_metrics:
-        print("No metrics to write.")
-        return
+    if value1 is None or value2 is None:
+        return ""
     
-    # Sort if requested
-    if sort_by and sort_by in all_metrics[0]:
-        all_metrics = sorted(
-            all_metrics, 
-            key=lambda x: x.get(sort_by, 0), 
-            reverse=True
-        )
-        print(f"Results sorted by '{sort_by}' (descending)")
+    v1_percentage = value1 * 100
+    v2_percentage = value2 * 100
     
-    # Get all unique metric names
-    metric_names = get_all_metric_names(all_metrics)
+    v1_str = f"{v1_percentage:.{precision}f}"
+    v2_str = f"{v2_percentage:.{precision}f}"
     
-    # Define CSV header
-    header = ['report_name'] + metric_names
+    return f"{v1_str} / {v2_str}"
+
+
+def calculate_average_metrics(model_metric1: Dict[str, Dict[str, float]], 
+                              model_metric2: Dict[str, Dict[str, float]]) -> str:
+    """
+    计算模型在所有数据库和数据集上的平均指标对
     
-    # Write to CSV
+    Args:
+        model_metric1: {db_type: {dataset_type: metric1_value}}
+        model_metric2: {db_type: {dataset_type: metric2_value}}
+        
+    Returns:
+        格式化的平均值字符串
+    """
+    all_values1 = []
+    all_values2 = []
+    
+    for db_type in model_metric1:
+        for dataset_type in model_metric1[db_type]:
+            val1 = model_metric1[db_type].get(dataset_type)
+            val2 = model_metric2.get(db_type, {}).get(dataset_type)
+            
+            if val1 is not None:
+                all_values1.append(val1)
+            if val2 is not None:
+                all_values2.append(val2)
+    
+    if not all_values1 or not all_values2:
+        return ""
+    
+    avg1 = sum(all_values1) / len(all_values1)
+    avg2 = sum(all_values2) / len(all_values2)
+    
+    return format_metric_pair(avg1, avg2)
+
+
+def generate_structured_csv(metric1_results: Dict[str, Dict[str, Dict[str, float]]], 
+                           metric2_results: Dict[str, Dict[str, Dict[str, float]]],
+                           model_categories: Dict[str, List[str]],
+                           output_path: str = 'structured_results.csv',
+                           metric1_name: str = 'F1Score',
+                           metric2_name: str = 'nDCG@10'):
+    """
+    生成结构化的CSV文件，格式类似LaTeX表格
+    
+    Args:
+        metric1_results: 第一个指标结果 {display_name: {db_type: {dataset_type: value}}}
+        metric2_results: 第二个指标结果 {display_name: {db_type: {dataset_type: value}}}
+        model_categories: 模型分类 {category: [display_names]}
+        output_path: 输出文件路径
+        metric1_name: 第一个指标的显示名称
+        metric2_name: 第二个指标的显示名称
+    """
+    db_types = ['sqlite', 'postgresql', 'clickhouse']
+    dataset_types = ['bird', 'spider', 'arxiv', 'wikipedia_multimodal']
+    
+    # 准备CSV数据
+    rows = []
+    
+    # 添加表头行1: 数据库类型
+    header_row1 = ['LLM']
+    for db in ['SQLite', 'PostgreSQL', 'ClickHouse']:
+        header_row1.extend([db] + [''] * 3)
+    header_row1.append('Average')
+    rows.append(header_row1)
+    
+    # 添加表头行2: 数据集类型
+    header_row2 = ['']
+    for _ in range(3):  # 三个数据库
+        header_row2.extend(['BIRD', 'Spider', 'arXiv', 'wikipedia_multimodal'])
+    header_row2.append('')
+    rows.append(header_row2)
+    
+    # 添加指标说明行
+    metric_row = [f'({metric1_name} / {metric2_name}, in %)'] + [''] * 12 + ['']
+    rows.append(metric_row)
+    
+    # 添加各个类别的模型
+    category_order = [
+        'Closed-source LLMs (as a reference)',
+        'Open-source LLMs (~7B)',
+        'custom_7b',
+        'Open-source LLMs (14B-32B)',
+        'custom_14b',
+        'Open-source LLMs (≥32B)',
+        'custom_32b',
+    ]
+    
+    total_models = 0
+    
+    for cat_key in category_order:
+        cat_models = model_categories.get(cat_key, [])
+        if not cat_models:
+            continue
+        
+        # 添加类别标题行（除了自定义模型类别）
+        if not cat_key.startswith('custom_'):
+            category_row = [cat_key] + [''] * 12 + ['']
+            rows.append(category_row)
+        
+        for display_name in cat_models:
+            if display_name not in metric1_results:
+                continue
+            
+            model_metric1 = metric1_results[display_name]
+            model_metric2 = metric2_results.get(display_name, {})
+            
+            # 构建数据行
+            row_data = [display_name]
+            
+            for db_type in db_types:
+                for dataset_type in dataset_types:
+                    val1 = model_metric1.get(db_type, {}).get(dataset_type, None)
+                    val2 = model_metric2.get(db_type, {}).get(dataset_type, None)
+                    
+                    cell = format_metric_pair(val1, val2)
+                    row_data.append(cell)
+            
+            # 添加平均值
+            avg_cell = calculate_average_metrics(model_metric1, model_metric2)
+            row_data.append(avg_cell)
+            
+            rows.append(row_data)
+            total_models += 1
+    
+    # 写入CSV文件
     try:
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=header)
-            writer.writeheader()
-            
-            for metrics in all_metrics:
-                # Ensure all fields are present (fill missing with empty string)
-                row = {field: metrics.get(field, '') for field in header}
-                writer.writerow(row)
+            writer = csv.writer(f)
+            writer.writerows(rows)
         
-        print(f"\n✅ Successfully wrote aggregated results to: {output_path}")
-        print(f"   Total reports: {len(all_metrics)}")
-        print(f"   Total metrics: {len(metric_names)}")
+        print(f"\n✅ Successfully generated structured CSV: {output_path}")
+        print(f"   Total models: {total_models}")
+        print(f"   Metrics: {metric1_name} / {metric2_name}")
         
     except Exception as e:
         print(f"❌ Error writing CSV file: {e}")
         sys.exit(1)
 
 
-def print_summary_table(all_metrics: List[Dict[str, Any]], top_n: int = 10):
-    """
-    Print a summary table of key metrics to console.
-    
-    Args:
-        all_metrics: List of metric dictionaries
-        top_n: Number of top reports to show
-    """
-    if not all_metrics:
-        return
-    
-    print("\n" + "="*80)
-    print("AGGREGATED EVALUATION SUMMARY")
-    print("="*80)
-    
-    # Find common important metrics
-    important_metrics = [
-        'total_cases',
-        'successful_evaluations', 
-        'evaluation_success_rate',
-        'average_f1_score',
-        'average_precision',
-        'average_recall',
-        'average_exact_match',
-        'average_map',
-        'average_mrr',
-        'average_ndcg@10',
-        'average_llm_sql_skeleton_score',
-        'average_llm_vector_component_score',
-        'average_llm_overall_score'
-    ]
-    
-    # Filter to only metrics that exist in the data
-    existing_metrics = [m for m in important_metrics if any(m in metrics for metrics in all_metrics)]
-    
-    if not existing_metrics:
-        print("No common metrics found across reports.")
-        return
-    
-    # Print header
-    col_width = 30
-    print(f"{'Report Name':<{col_width}}", end='')
-    for metric in existing_metrics[:5]:  # Show top 5 metrics
-        metric_display = metric.replace('average_', '').replace('_', ' ').title()
-        print(f"{metric_display:>15}", end='')
-    print()
-    print("-" * 80)
-    
-    # Print data rows
-    for i, metrics in enumerate(all_metrics[:top_n]):
-        report_name = metrics.get('report_name', 'Unknown')
-        # Truncate long names
-        if len(report_name) > col_width - 1:
-            report_name = report_name[:col_width-4] + "..."
-        
-        print(f"{report_name:<{col_width}}", end='')
-        for metric in existing_metrics[:5]:
-            value = metrics.get(metric, '')
-            if isinstance(value, float):
-                print(f"{value:>15.4f}", end='')
-            elif isinstance(value, int):
-                print(f"{value:>15}", end='')
-            else:
-                print(f"{str(value):>15}", end='')
-        print()
-    
-    if len(all_metrics) > top_n:
-        print(f"... and {len(all_metrics) - top_n} more reports")
-    
-    print("="*80)
-
-
-def find_json_files(directory: str) -> List[str]:
-    """
-    Find all JSON files in a directory.
-    
-    Args:
-        directory: Path to directory to search
-        
-    Returns:
-        List of JSON file paths
-    """
-    directory = Path(directory)
-    if not directory.exists():
-        print(f"Directory not found: {directory}")
-        return []
-    
-    json_files = list(directory.glob("*.json"))
-    return [str(f) for f in json_files]
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description="Aggregate evaluation metrics from multiple JSON reports into a CSV file.",
+        description="Aggregate evaluation metrics from hierarchical directory structure into a structured CSV file.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Directory Structure:
+  results_dir/
+      sqlite/
+          bird/
+              evaluation_report_gpt4.json
+              evaluation_report_qwen2.5-7b.json
+          spider/
+              evaluation_report_gpt4.json
+          arxiv/
+              evaluation_report_gpt4.json
+          wiki/
+              evaluation_report_gpt4.json
+      postgresql/
+          bird/
+              evaluation_report_gpt4.json
+          ...
+      clickhouse/
+          bird/
+              evaluation_report_gpt4.json
+          ...
+
 Examples:
-  # Aggregate specific files
-  python aggregate_results.py --input report1.json report2.json --output summary.csv
+  # Generate structured CSV with default metrics (F1Score / nDCG@10)
+  python aggregate_results.py --results-dir ./results --output structured_results.csv
   
-  # Aggregate all JSON files in a directory
-  python aggregate_results.py --input-dir ./reports --output summary.csv
+  # Customize metrics
+  python aggregate_results.py --results-dir ./results --output results.csv \\
+      --metric1 average_exact_match --metric2 average_recall \\
+      --metric1-name "EX" --metric2-name "Recall"
   
-  # Use wildcard pattern
-  python aggregate_results.py --input model_*_report.json --output comparison.csv
-  
-  # Sort by a specific metric
-  python aggregate_results.py --input *.json --output summary.csv --sort-by average_f1_score
+  # Use different results directory
+  python aggregate_results.py --results-dir /path/to/results --output custom_output.csv
+
+Note: Model configuration is set in the script code (DEFAULT_MODEL_CONFIG).
+      Edit the script to modify which models are included in the output.
         """
     )
     
-    # Input options
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument(
-        '--input', '-i',
-        nargs='+',
-        help='One or more JSON report files to aggregate'
-    )
-    input_group.add_argument(
-        '--input-dir', '-d',
-        help='Directory containing JSON report files'
+    # Required argument
+    parser.add_argument(
+        '--results-dir',
+        default='/mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/results',
+        help='Root directory containing results (structure: results_dir/db_type/dataset_type/evaluation_report_model.json)'
     )
     
     # Output options
     parser.add_argument(
         '--output', '-o',
-        default='aggregated_results.csv',
-        help='Output CSV file path (default: aggregated_results.csv)'
+        default='structured_results.csv',
+        help='Output CSV file path (default: structured_results.csv)'
     )
     
-    # Sorting options
+    # Metric options
     parser.add_argument(
-        '--sort-by', '-s',
-        help='Sort results by this metric (descending). Example: average_f1_score'
+        '--metric1',
+        default='average_f1',
+        help='First metric key (default: average_f1_score)'
+    )
+    
+    parser.add_argument(
+        '--metric2',
+        default='average_ndcg@10',
+        help='Second metric key (default: average_ndcg@10)'
+    )
+    
+    parser.add_argument(
+        '--metric1-name',
+        default='average_f1',
+        help='Display name for first metric (default: F1Score)'
+    )
+    
+    parser.add_argument(
+        '--metric2-name',
+        default='average_ndcg@10',
+        help='Display name for second metric (default: nDCG@10)'
     )
     
     # Display options
-    parser.add_argument(
-        '--no-table',
-        action='store_true',
-        help='Disable summary table output to console'
-    )
-    
     parser.add_argument(
         '--quiet', '-q',
         action='store_true',
@@ -276,47 +475,57 @@ Examples:
     
     args = parser.parse_args()
     
-    # Collect input files
-    if args.input:
-        input_files = args.input
-    else:
-        input_files = find_json_files(args.input_dir)
-        if not input_files:
-            print(f"No JSON files found in directory: {args.input_dir}")
-            sys.exit(1)
-    
-    if not args.quiet:
-        print(f"Found {len(input_files)} JSON file(s) to process")
-    
-    # Process each file
-    all_metrics = []
-    for file_path in input_files:
-        if not args.quiet:
-            print(f"Processing: {file_path}")
-        
-        report = load_json_file(file_path)
-        if report is None:
-            continue
-        
-        # Use filename (without extension) as report name
-        report_name = Path(file_path).stem
-        
-        metrics = extract_summary_metrics(report, report_name)
-        all_metrics.append(metrics)
-    
-    if not all_metrics:
-        print("❌ No valid reports found. Exiting.")
+    # Validate results directory exists
+    if not Path(args.results_dir).exists():
+        print(f"❌ Results directory not found: {args.results_dir}")
         sys.exit(1)
     
-    # Write to CSV
-    write_to_csv(all_metrics, args.output, sort_by=args.sort_by)
+    if not args.quiet:
+        print(f"📂 Loading results from: {args.results_dir}")
+        print(f"   Expected structure: results_dir/db_type/dataset_type/evaluation_report_model.json")
+        print(f"📊 Metrics: {args.metric1_name} ({args.metric1}) / {args.metric2_name} ({args.metric2})")
+        print(f"📄 Output: {args.output}")
     
-    # Print summary table
-    if not args.no_table and not args.quiet:
-        print_summary_table(all_metrics)
+    # 使用默认模型配置
+    model_config = DEFAULT_MODEL_CONFIG
     
     if not args.quiet:
-        print(f"\n✅ Aggregation complete! Results saved to: {args.output}")
+        total_models = sum(len(models) for models in model_config.values())
+        print(f"\n🔍 Configured models: {total_models} models across {len(model_config)} categories")
+    
+    # 加载所有结果
+    if not args.quiet:
+        print(f"\n📥 Loading results for models...")
+    
+    metric1_results, metric2_results, model_categories = load_all_results_from_config(
+        args.results_dir,
+        model_config,
+        args.metric1,
+        args.metric2
+    )
+    
+    if not metric1_results:
+        print("❌ No valid results found for any models.")
+        print("\nℹ️  Please ensure:")
+        print("   1. Results directory structure is: results_dir/db_type/dataset_type/evaluation_report_model.json")
+        print("      Example: results/sqlite/bird/evaluation_report_gpt4.json")
+        print("   2. Model names in DEFAULT_MODEL_CONFIG match the file names")
+        print("   3. JSON files contain the specified metrics in 'evaluation_summary'")
+        sys.exit(1)
+    
+    # 生成结构化CSV
+    generate_structured_csv(
+        metric1_results, 
+        metric2_results,
+        model_categories,
+        args.output,
+        args.metric1_name,
+        args.metric2_name
+    )
+    
+    if not args.quiet:
+        print(f"\n✅ Structured CSV generation complete!")
+        print(f"   Output saved to: {args.output}")
 
 
 if __name__ == "__main__":

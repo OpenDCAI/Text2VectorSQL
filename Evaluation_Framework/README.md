@@ -810,3 +810,81 @@ python evaluate_results.py --config debug_config.yaml
 ---
 
 *本文档涵盖了Text2VectorSQL评测框架的完整技术细节。如需了解更多实现细节，请参考源代码注释和相关学术文献。*
+
+
+# 评测脚本使用方法
+目前有两个脚本，一个是create_generate_script.py，一个是create3_eval_script.py。用来产生批量bash命令。
+
+## create_generate_script.py
+你需要修改代码：
+```python
+if __name__ == '__main__':
+    # --- 在这里输入你的参数 ---
+    
+    DATABASE_BACKENDS = [
+        'sqlite',
+        # 'clickhouse',
+        # 'postgre'
+    ]
+
+    MODES = [
+        'api', 
+        # 'vllm'
+    ]
+    
+    DATASETS = [
+        # 'arxiv', 
+        # 'bird', 
+        # 'spider',
+        'wikipedia_multimodal'
+    ]
+    
+    MODEL_NAMES = [
+        'gpt-4o', 
+        'gpt-4o-mini',
+        'gpt-4-turbo'
+    ]
+    
+    MODEL_PATHS = [
+        # '/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct',
+        # '/mnt/b_public/data/ydw/model/Llama/Llama-3-70b-chat-hf'
+    ]
+```
+在数组中填入数据，这个脚本就会组合api和MODEL_NAMES中的元素，也会组合vllm和MODEL_PATHS中的元素，批量产生命令。
+然后运行generate.sh即可批量让大模型进行推理，从而在当前目录下获得每个数据库后端，每个数据集，每个大模型（api和vllm）的输出文件。里面包含predicted_sql字段，此为这个步骤大模型产生的字段。
+
+## create3_eval_script.py
+这个脚本和上面的create_generate_script.py类似，同样修改代码中最后的数组：
+```python
+if __name__ == '__main__':
+    # --- 在这里配置你的参数数组 ---
+    
+    DATASETS = [
+        'arxiv',
+        'bird',
+        'wikipedia_multimodal',
+        'spider'
+    ]
+
+    EVALUATION_REPORT_FILES = [
+        'evaluation_report.json'
+    ]
+
+    DB_TYPES = [
+        'sqlite',
+        # 'clickhouse'
+    ]
+    
+    API_MODELS = [
+        'gpt-4o',
+        'gpt-4o-mini',
+        'gpt-4-turbo'
+    ]
+    
+    # 如果没有VLLM模型，可以将此列表设置为空: VLLM_MODELS = []
+    VLLM_MODELS = [
+        # 'Qwen/Qwen2.5-72B-Instruct',
+        # 'Llama/Llama-3-70b-chat-hf'
+    ]
+```
+这个脚本会自动帮你找到合适的位置，生成适当bash脚本。你需要检查生成的run_evaluation.sh脚本，然后运行bash run_evaluation.sh即可得到最终结果。

@@ -9,6 +9,7 @@ import shutil # 导入 shutil 库用于删除目录
 from tqdm import tqdm
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
@@ -227,8 +228,10 @@ def main():
 
     # --- 3. Interruption Recovery & Concurrent Evaluation ---
     # 新增: 构造新的缓存目录路径
-    dataset_name, _ = os.path.splitext(os.path.basename(eval_data_file))
-    cache_dir = os.path.join("cache", db_type, dataset_name, "evaluation")
+    eval_data_file_place = Path(eval_data_file)
+    dataset_name = eval_data_file_place.parent.name
+    out_llm_model_name, _ = os.path.splitext(os.path.basename(eval_data_file))
+    cache_dir = os.path.join("cache", db_type, dataset_name, out_llm_model_name, "evaluation")
     os.makedirs(cache_dir, exist_ok=True)
     print(f"Using cache directory for recovery: '{cache_dir}'")
     

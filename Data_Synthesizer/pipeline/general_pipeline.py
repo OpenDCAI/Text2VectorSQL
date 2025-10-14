@@ -12,8 +12,8 @@ import sys
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # 只需要修改这里，就可以加载不同的数据集配置！
-DATASET_BACKEND = "clickhouse" # "clickhouse"
-DATASET_TO_LOAD = "test" # "synthesis_data" 
+DATASET_BACKEND = "postgresql" # "clickhouse"
+DATASET_TO_LOAD = "bird" # "synthesis_data" 
 # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
 
 # 获取当前文件的绝对路径
@@ -164,9 +164,15 @@ def main():
         
         # 访问路径时，它们已经是被正确替换后的最终路径了
         print("\n--- 动态生成的路径 ---")
-        print(f"  源数据库根目录: {config.paths.source_db_root}")
-        print(f"  结果存放路径:   {config.paths.result_path}")
-        print(f"  缓存文件路径:   {config.paths.cache_file}")
+        # 使用 hasattr() 安全地检查并打印每个路径
+        if hasattr(config.paths, 'source_db_root'):
+            print(f"  源数据库根目录: {config.paths.source_db_root}")
+
+        if hasattr(config.paths, 'result_path'):
+            print(f"  结果存放路径:   {config.paths.result_path}")
+
+        if hasattr(config.paths, 'cache_file'):
+            print(f"  缓存文件路径:   {config.paths.cache_file}")
 
         # --- 【关键修改】更准确、更稳健的目录创建逻辑 ---
         print("\n正在创建所有必需的目录...")
@@ -265,17 +271,18 @@ def main():
 
 
 
-    # #下面的算子只有训练数据集需要
-    # print("################################################")
-    # print("生成合成cot提示词")
-    # generate_cot_prompts(config.paths.gene_cot_prompts_dataset_json_path,config.paths.gene_cot_prompts_tables_json_path,config.paths.gene_cot_prompts_prompt_tamplate_path,config.paths.gene_cot_prompts_output_prompt_path)
+    #下面的算子只有训练数据集需要
+    print("################################################")
+    print("生成合成cot提示词")
+    generate_cot_prompts(config.paths.gene_cot_prompts_dataset_json_path,config.paths.gene_cot_prompts_tables_json_path,config.paths.gene_cot_prompts_prompt_tamplate_path,config.paths.gene_cot_prompts_output_prompt_path)
 
-    # print("################################################")
-    # print("合成cot")
-    # synthesize_cot(config.paths.gene_cot_prompts_output_prompt_path,config.paths.synthesize_cot_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.max_workers,config.paths.cache_file_path_cot,5,0.8)
+    print("################################################")
+    print("合成cot")
+    synthesize_cot(config.paths.gene_cot_prompts_output_prompt_path,config.paths.synthesize_cot_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.max_workers,config.paths.cache_file_path_cot,5,0.8, config.parameters.dataset_backend)
 
-    # print("################################################")
-    # print("选择合适的cot，并且过滤可以成功运行的sql")
+    print("################################################")
+    print("选择合适的cot，并且过滤可以成功运行的sql")
+    post_process_cot(config.paths.post_process_cot_results_path,config.paths.post_process_cot_output_dir, config.parameters.dataset_backend)
     # post_process_cot(config.paths.post_process_cot_results_path,config.paths.post_process_cot_db_dir,config.paths.post_process_cot_output_dir,config.services.embed.get('api_url'),config.services.openai.get('embedding_model_name'))
 
 

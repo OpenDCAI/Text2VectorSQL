@@ -52,7 +52,7 @@ def save_to_cache(cache_file, key, value):
             # 将记录转换为 JSON 字符串并写入，然后添加换行符
             f.write(json.dumps(record, ensure_ascii=False) + '\n')
 
-def llm_inference(dataset, api_key, base_url, llm_model_name, max_workers, cache_file_path, num_responses, temperature):
+def llm_inference(dataset, api_key, base_url, llm_model_name, max_workers, cache_file_path, num_responses, temperature, db_type="sqlite"):
     """
     使用大语言模型为数据集中的每个提示（prompt）生成回应。
 
@@ -93,16 +93,37 @@ def llm_inference(dataset, api_key, base_url, llm_model_name, max_workers, cache
         # 4. 定义单个 prompt 的处理函数
         def process_prompt(prompt):
             """为单个 prompt 调用 LLM API 并返回结果"""
-            system_prompt = (
-                "You are an expert SQLite data analyst working with a database that has a vector search extension. "
-                "Your task is to generate a step-by-step thinking process (Chain-of-Thought) to arrive at a SQL query for a given question and database schema. "
-                "For vector similarity searches, you MUST use the exact syntax: "
-                "`vector_column MATCH lembed('model_name', 'search_text') AND k = N`, "
-                "where `k` is the number of nearest neighbors to find. Do not use other operators like `<->`. "
-                "**Crucially, you MUST conclude your response with the final, complete SQL query enclosed in a markdown "
-                "code block like this: ```sql\\n[YOUR SQL QUERY HERE]\\n```**. "
-                "Do not include any explanation after the final SQL code block."
-            )
+            if db_type == "sqlite":
+                system_prompt = (
+                    "You are an expert SQLite data analyst working with a database that has a vector search extension. "
+                    "Your task is to generate a step-by-step thinking process (Chain-of-Thought) to arrive at a SQL query for a given question and database schema. "
+                    "For vector similarity searches, you MUST use the exact syntax: "
+                    "`vector_column MATCH lembed('model_name', 'search_text') AND k = N`, "
+                    "where `k` is the number of nearest neighbors to find. Do not use other operators like `<->`. "
+                    "**Crucially, you MUST conclude your response with the final, complete SQL query enclosed in a markdown "
+                    "code block like this: ```sql\\n[YOUR SQL QUERY HERE]\\n```**. "
+                    "Do not include any explanation after the final SQL code block."
+                )
+            elif db_type == "postgresql":
+                system_prompt = (
+                    "You are an expert PostgreSQL data analyst working with a database that has the `pgvector` extension. "
+                    "Your task is to generate a step-by-step thinking process (Chain-of-Thought) to arrive at a SQL query for a given question and database schema. "
+                    "For vector similarity searches, you MUST use the L2 distance operator `<->`. The query structure must calculate the distance in the SELECT clause and use it for ordering: "
+                    "`SELECT ..., vector_column <-> lembed('model_name', 'search_text') AS distance FROM table_name ORDER BY distance LIMIT N`. "
+                    "**Crucially, you MUST conclude your response with the final, complete SQL query enclosed in a markdown "
+                    "code block like this: ```sql\n[YOUR SQL QUERY HERE]\n```**. "
+                    "Do not include any explanation after the final SQL code block."
+                )
+            elif db_type == "clickhouse":
+                system_prompt = (
+                    "You are an expert ClickHouse data analyst working with a database that has built-in vector search capabilities. "
+                    "Your task is to generate a step-by-step thinking process (Chain-of-Thought) to arrive at a SQL query for a given question and database schema. "
+                    "For vector similarity searches, you MUST use a `WITH` clause for the reference vector and a distance function (e.g., `L2Distance`). The exact syntax pattern is: "
+                    "`WITH lembed('model_name', 'search_text') AS ref_vec SELECT ..., L2Distance(vector_column, ref_vec) AS distance FROM table_name ORDER BY distance LIMIT N`. "
+                    "**Crucially, you MUST conclude your response with the final, complete SQL query enclosed in a markdown "
+                    "code block like this: ```sql\n[YOUR SQL QUERY HERE]\n```**. "
+                    "Do not include any explanation after the final SQL code block."
+                )
 
             try:
                 chat_completion = client.chat.completions.create(
@@ -159,7 +180,8 @@ def synthesize_cot(
     max_workers: int,
     cache_file_path: str,
     num_responses: int,
-    temperature: float
+    temperature: float,
+    db_type: str = "sqlite"
 ):
     """
     运行完整的 CoT 合成流程，从读取输入文件到调用 LLM 推理，最后保存结果。
@@ -184,6 +206,7 @@ def synthesize_cot(
     print(f"  Cache File: {cache_file_path}")
     print(f"  #Responses: {num_responses}")
     print(f"  Temperature:{temperature}")
+    print(f"  db_type:    {db_type}")
 
     # 确保目录存在
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
@@ -210,6 +233,7 @@ def synthesize_cot(
         cache_file_path=cache_file_path,
         num_responses=num_responses,
         temperature=temperature
+        db_type=db_type
     )
 
     # 保存输出

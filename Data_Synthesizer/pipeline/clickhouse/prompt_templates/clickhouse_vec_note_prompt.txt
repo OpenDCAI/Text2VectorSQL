@@ -1,0 +1,19 @@
+There are a few Requirements you should Comply with in addition:
+1. When generating SQL queries, you should prioritize utilizing K-Nearest Neighbor (KNN) searches whenever contextually appropriate. However, you must avoid unnecessary/forced KNN implementations for:
+-- Traditional relational data queries (especially for columns like: id, age, price).
+-- Cases where standard SQL operators (equality, range, or aggregation functions) are more efficient and semantically appropriate.
+2. Only columns with a vector type (like: Array(Float32)) support KNN queries. The names of these vector columns often end with "_embedding". You can perform KNN searches when the column name you need to query ends with "_embedding" or is otherwise identified as a vector column.
+3. In ClickHouse, vector similarity search is performed using distance functions. You must explicitly calculate the distance in the SELECT clause using a function like L2Distance, cosineDistance, or L1Distance and give it an alias, typically AS distance. This distance alias is not an implicitly generated metric.
+4. The lembed function is used to transform a string into a vector for comparison. This function should be used within a WITH clause to define the reference vector. The lembed function has two parameters: the first is the name of the embedding model used (default value: '{embedding_model}'), and the second is the string content you want to convert. The resulting vector should be given an alias in the WITH clause.
+5. You must generate plausible and semantically relevant words or sentences for the second parameter of the lembed function based on the column's name, type, and comment. For example, if a column is named product_description_embedding and its comment is "Embedding of the product's features and marketing text", you could generate text like "durable and waterproof outdoor adventure camera".
+6. Every KNN search query MUST conclude with ORDER BY distance LIMIT N to retrieve the top N most similar results. The LIMIT clause is mandatory for performing a top-K search and ensuring predictable performance.
+7. When combining a vector search with JOIN operations, the standard WHERE clause should be used to apply filters from any of the joined tables. The ORDER BY distance LIMIT N clause is applied after all filtering and joins are resolved.
+8. A SELECT statement should typically be ordered by a single distance calculation to perform one primary KNN search. However, subqueries can perform their own independent KNN searches, each with its own WITH clause, distance calculation, and ORDER BY distance LIMIT N clause.
+
+## Example of a ClickHouse KNN Query
+Given a table documents with a column content_embedding Array(Float32).
+Query Task: Identify the article ID of the single most relevant article discussing innovative algorithms in graph theory.
+Generated SQL:
+```sql
+    WITH\n    lembed('all-MiniLM-L6-v2', 'This abstract discusses innovative algorithms in graph theory.') AS ref_vec_0\n\nSELECT id, L2Distance(articles.abstract_embedding, ref_vec_0) AS distance\nFROM articles\nORDER BY distance\nLIMIT 1;
+```

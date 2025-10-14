@@ -1,7 +1,6 @@
 import json
 import re
 import os
-
 from tqdm import tqdm
 
 def remove_sql_comments(sql):
@@ -13,14 +12,16 @@ def remove_sql_comments(sql):
 
 def generate_cot_prompts(dataset_json_path="./results/question_and_sql_pairs.json", tables_json_path="sqlite/results/enhanced_embedding_table_vector.json", prompt_tamplate_path="sqlite/prompt_templates/cot_synthesis_prompt_template.txt", output_prompt_path="sqlite/prompts/cot_synthesis_prompts.json"):
     dataset_json = json.load(open(dataset_json_path))
-    tables_json = json.load(open(tables_json_path))
     print("len(tables):", len(tables_json))
     
-    prompts = []
-    db_id2ddls = dict()
-    for table in tables_json:
-        db_id2ddls[table["db_id"]] = table["ddls"]
-    print("len(db_id2ddls):", len(db_id2ddls))
+    if os.path.exists(tables_json_path):
+        tables_json = json.load(open(tables_json_path))
+        db_id2ddls = dict()
+        for table in tables_json:
+            db_id2ddls[table["db_id"]] = table["ddls"]
+        print("len(db_id2ddls):", len(db_id2ddls))
+    else:
+        assert "schema" in dataset_json[0], "When tables_json_path not exists, the schema should be in dataset_json"
 
     prompt_tamplate = open(prompt_tamplate_path).read()
     for data in tqdm(dataset_json):
@@ -29,8 +30,13 @@ def generate_cot_prompts(dataset_json_path="./results/question_and_sql_pairs.jso
         else:
             question = data["question"]
 
+        if os.path.exists(tables_json_path):
+            schema = "\n\n".join(db_id2ddls[data["db_id"]])
+        else:
+            schema = data["schema"]
+
         data["cot_synthesis_prompt"] = prompt_tamplate.format(
-            schema = "\n\n".join(db_id2ddls[data["db_id"]]),
+            schema = schema,
             question = question,
             sql = remove_sql_comments(data["sql"])
         )

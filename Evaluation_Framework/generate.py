@@ -162,6 +162,9 @@ def parse_arguments():
     sampling_group.add_argument('--temperature', type=float, help='采样温度')
     sampling_group.add_argument('--top_p', type=float, help='nucleus 采样参数')
     sampling_group.add_argument('--top_k', type=int, help='top-k 采样参数')
+
+    # cache_dir 参数
+    sampling_group.add_argument('--cache_dir', type=str, help='缓存目录，存放中间结果，默认 cache', default='cache')
     
     # 解析命令行参数
     args, unknown = parser.parse_known_args()
@@ -560,7 +563,8 @@ def main():
     args = parse_arguments()
     
     # 定义并创建缓存目录
-    CACHE_DIR = "cache"
+    CACHE_DIR = args.cache_dir if args.cache_dir else "cache"
+    print(f"\n使用缓存目录: {CACHE_DIR}")
     os.makedirs(CACHE_DIR, exist_ok=True)
     
     try:

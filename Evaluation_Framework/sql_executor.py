@@ -15,6 +15,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 # 导入 multiprocessing 和 queue 以实现沙箱化超时
 import multiprocessing
 from queue import Empty as QueueEmpty
+from pathlib import Path
 
 # Adjust path to import from parent directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -277,6 +278,12 @@ def main():
         num_workers = config.get('num_workers', 8)
         # 新增: 从配置中加载查询超时时间，默认为60秒
         query_timeout = config.get('query_timeout', 30)
+
+        # 解析数据集名称
+        place_base_dir = Path(base_dir)
+        dataset_name = place_base_dir.parent.name
+        print(f"Dataset: {dataset_name}")
+        print(f"Base directory: {base_dir}")
         
         service_config = config.get('embedding_service', {})
         auto_manage = service_config.get('auto_manage', True) and not args.no_service_management
@@ -314,8 +321,8 @@ def main():
             print("Embedding Service is running (externally managed)")
 
     try:
-        dataset_name, _ = os.path.splitext(os.path.basename(eval_data_file))
-        cache_dir = os.path.join("cache", db_type, dataset_name, "execution")
+        out_llm_mode_name, _ = os.path.splitext(os.path.basename(eval_data_file))
+        cache_dir = os.path.join("cache", db_type, dataset_name, out_llm_mode_name, "execution")
         os.makedirs(cache_dir, exist_ok=True)
         print(f"\nUsing cache directory for recovery: '{cache_dir}'")
         
