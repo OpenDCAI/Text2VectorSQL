@@ -33,13 +33,56 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 from collections import OrderedDict, defaultdict
 
-
 # 默认模型配置 - 可以在代码中直接修改
 DEFAULT_MODEL_CONFIG = {
     "closed_source": [
-        {"name": "gpt-4o-mini", "display_name": "GPT-4o-mini"},
-        {"name": "gpt-4-turbo", "display_name": "GPT-4-Turbo"},
-        {"name": "gpt-4o", "display_name": "GPT-4o"},
+        {"name": "api_gpt-4o-mini", "display_name": "GPT-4o-mini"},
+        {"name": "api_gpt-4-turbo", "display_name": "GPT-4-Turbo"},
+        {"name": "api_gpt-4o", "display_name": "GPT-4o"},
+        {"name": "api_claude-3-5-haiku-20241022", "display_name": "Claude-3.5-Haiku"},
+        {"name": "api_claude-3-7-sonnet-20250219", "display_name": "Claude-3.7-Sonnet"},
+        {"name": "api_claude-4-sonnet", "display_name": "Claude-4-Sonnet"},
+        {"name": "api_gemini-2.5-flash", "display_name": "Gemini-2.5-Flash"},
+        {"name": "api_gemini-2.5-pro", "display_name": "Gemini-2.5-Pro"},
+        {"name": "api_grok-3", "display_name": "Grok-3"},
+        {"name": "api_grok-4", "display_name": "Grok-4"},
+
+        {"name": "vllm_OmniSQL-7B", "display_name": "OmniSQL-7B"},
+        {"name": "vllm_OmniSQL-14B", "display_name": "OmniSQL-14B"},
+        {"name": "vllm_OmniSQL-32B", "display_name": "OmniSQL-32B"},
+
+        {"name": "vllm_deepseek-coder-6.7b-instruct", "display_name": "DeepSeek-coder-6.7B-Instruct"},
+        {"name": "vllm_Qwen2.5-Coder-7B-Instruct", "display_name": "Qwen2.5-Coder-7B-Instruct"},
+        {"name": "vllm_Qwen2.5-7B-Instruct", "display_name": "Qwen2.5-7B-Instruct"},
+        {"name": "vllm_OpenCoder-8B-Instruct", "display_name": "OpenCoder-8B-Instruct"},
+        {"name": "vllm_Meta-Llama-3.1-8B-Instruct", "display_name": "Meta-Llama-3.1-8B-Instruct"},
+        {"name": "vllm_UniVectorSQL-7B-LoRA-Step600", "display_name": "UniVectorSQL-7B-LoRA-Step600"},
+        {"name": "vllm_UniVectorSQL-7B-LoRA-Step800", "display_name": "UniVectorSQL-7B-LoRA-Step800"},
+        {"name": "vllm_UniVectorSQL-7B-LoRA-Step1100", "display_name": "UniVectorSQL-7B-LoRA-Step1100"},
+        {"name": "vllm_UniVectorSQL-7B-Step1100", "display_name": "UniVectorSQL-7B-Step1100"},
+        {"name": "vllm_UniVectorSQL-7B-Step1400", "display_name": "UniVectorSQL-7B-Step1400"},
+        {"name": "vllm_UniVectorSQL-7B-Step1800", "display_name": "UniVectorSQL-7B-Step1800"},
+        {"name": "vllm_UniVectorSQL-7B-Step2100", "display_name": "UniVectorSQL-7B-Step2100"},
+        {"name": "vllm_UniVectorSQL-7B-Step2500", "display_name": "UniVectorSQL-7B-Step2500"},
+        
+        {"name": "vllm_UniVectorSQL-14B-LoRA-Step900", "display_name": "UniVectorSQL-14B-LoRA-Step900"},
+        {"name": "vllm_UniVectorSQL-14B-LoRA-Step1000", "display_name": "UniVectorSQL-14B-LoRA-Step1000"},
+        {"name": "vllm_UniVectorSQL-14B-LoRA-Step1100", "display_name": "UniVectorSQL-14B-LoRA-Step1100"},
+
+        {"name": "vllm_Qwen2.5-Coder-14B-Instruct", "display_name": "Qwen2.5-Coder-14B-Instruct"},
+        {"name": "vllm_Qwen2.5-14B-Instruct", "display_name": "Qwen2.5-14B-Instruct"},
+        {"name": "vllm_starcoder2-15b-instruct-v0.1", "display_name": "StarCoder2-15B-Instruct-V0.1"},
+        {"name": "vllm_DeepSeek-Coder-V2-Lite-Instruct", "display_name": "DeepSeek-Coder-V2-Lite-Instruct"},
+        {"name": "vllm_Codestral-22B-v0.1", "display_name": "Codestral-22B-V0.1"},
+
+        {"name": "vllm_Qwen2.5-Coder-32B-Instruct", "display_name": "Qwen2.5-Coder-32B-Instruct"},
+        {"name": "api_qwen2.5-32b-instruct", "display_name": "Qwen2.5-32B-Instruct"},
+        {"name": "vllm_deepseek-coder-33b-instruct", "display_name": "DeepSeek-Coder-33B-Instruct"},
+        {"name": "vllm_Meta-Llama-3.1-70B-Instruct", "display_name": "Meta-Llama-3.1-70B-Instruct"},
+        {"name": "api_qwen2.5-72b-instruct", "display_name": "Qwen2.5-72B-Instruct"},
+        {"name": "api_deepseek-v3.1-250821", "display_name": "DeepSeek-V3.1 (671B, MoE)"},
+
+        # {"name": "vllm_Mixtral-8x7B-Instruct-v0.1", "display_name": "Mixtral-8x7B-Instruct-v0.1"},
     ]
 }
 
@@ -130,7 +173,7 @@ def load_results_by_model_name(root_dir: str, model_name: str,
         
         for dataset_type in dataset_types:
             # 构建文件路径: results_dir/db_type/dataset_type/evaluation_report_model.json
-            json_path = root_path / db_type / dataset_type / f"evaluation_report_api_{model_name}.json"
+            json_path = root_path / db_type / dataset_type / f"evaluation_report_{model_name}.json"
             
             
             
@@ -444,25 +487,25 @@ Note: Model configuration is set in the script code (DEFAULT_MODEL_CONFIG).
     # Metric options
     parser.add_argument(
         '--metric1',
-        default='average_f1',
+        default='average_ndcg@10',
         help='First metric key (default: average_f1_score)'
     )
     
     parser.add_argument(
         '--metric2',
-        default='average_ndcg@10',
+        default='evaluation_success_rate',
         help='Second metric key (default: average_ndcg@10)'
     )
     
     parser.add_argument(
         '--metric1-name',
-        default='average_f1',
+        default='nDCG@10',
         help='Display name for first metric (default: F1Score)'
     )
     
     parser.add_argument(
         '--metric2-name',
-        default='average_ndcg@10',
+        default='SR',
         help='Display name for second metric (default: nDCG@10)'
     )
     

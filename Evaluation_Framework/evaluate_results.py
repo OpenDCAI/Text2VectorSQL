@@ -16,11 +16,6 @@ sys.path.insert(0, project_root)
 from sql_executor import resolve_db_identifier
 # Import metrics calculation functions
 from metrics import (
-    calculate_set_metrics,
-    calculate_average_precision,
-    calculate_reciprocal_rank,
-    calculate_ndcg,
-    calculate_exact_match_any_gt,
     calculate_exact_match_any_gt_with_columns,
     calculate_set_metrics_with_columns,
     calculate_ranking_metrics_with_columns,
@@ -111,39 +106,28 @@ def evaluate_single_case(case, metrics_to_run, metric_params, llm_enabled, llm_a
     individual_gt_results = [extract_successful_data(gt_exec.get('execution', {})) for gt_exec in gt_executions if extract_successful_data(gt_exec.get('execution', {}))]
 
     try:
-        eval_columns = eval_execution.get('columns', [])
-        gt_columns = _get_gt_columns(gt_executions)
-        use_column_matching = bool(eval_columns and gt_columns)
-        
-        if use_column_matching:
-            if any(metric in metrics_to_run for metric in ['f1_score', 'precision', 'recall']):
-                case_report['scores'].update(calculate_set_metrics_with_columns(eval_data, eval_columns, all_gt_data, gt_columns))
-            if 'exact_match' in metrics_to_run:
-                case_report['scores']['exact_match'] = calculate_exact_match_any_gt_with_columns(eval_data, eval_columns, gt_executions)
-            if 'map' in metrics_to_run:
-                case_report['scores']['map'] = calculate_ranking_metrics_with_columns(eval_data, eval_columns, all_gt_data, gt_columns, 'map')
-            if 'mrr' in metrics_to_run:
-                case_report['scores']['mrr'] = calculate_ranking_metrics_with_columns(eval_data, eval_columns, all_gt_data, gt_columns, 'mrr')
-            if 'ndcg' in metrics_to_run:
-                k = metric_params.get('ndcg', {}).get('k', 10)
-                case_report['scores'][f'ndcg@{k}'] = calculate_ranking_metrics_with_columns(eval_data, eval_columns, all_gt_data, gt_columns, 'ndcg', k)
-        else:
-            if any(metric in metrics_to_run for metric in ['f1_score', 'precision', 'recall']):
-                case_report['scores'].update(calculate_set_metrics(eval_data, all_gt_data, individual_gt_results))
-            if 'exact_match' in metrics_to_run:
-                case_report['scores']['exact_match'] = calculate_exact_match_any_gt(eval_data, individual_gt_results)
-            if 'map' in metrics_to_run:
-                case_report['scores']['map'] = calculate_average_precision(eval_data, all_gt_data, individual_gt_results)
-            if 'mrr' in metrics_to_run:
-                case_report['scores']['mrr'] = calculate_reciprocal_rank(eval_data, all_gt_data, individual_gt_results)
-            if 'ndcg' in metrics_to_run:
-                k = metric_params.get('ndcg', {}).get('k', 10)
-                case_report['scores'][f'ndcg@{k}'] = calculate_ndcg(eval_data, all_gt_data, k, individual_gt_results)
 
-        case_report["execution_summary"]["column_matching_used"] = use_column_matching
-        if use_column_matching:
-            case_report["execution_summary"]["eval_columns"] = eval_columns
-            case_report["execution_summary"]["gt_columns"] = gt_columns
+        eval_columns = [col for col in eval_execution.get('columns', []) if col != 'distance']
+        gt_columns = [col for col in _get_gt_columns(gt_executions) if col != 'distance']
+        
+        
+        
+       
+        if any(metric in metrics_to_run for metric in ['f1_score', 'precision', 'recall']):
+            case_report['scores'].update(calculate_set_metrics_with_columns(eval_data, eval_columns, all_gt_data, gt_columns))
+        if 'exact_match' in metrics_to_run:
+            case_report['scores']['exact_match'] = calculate_exact_match_any_gt_with_columns(eval_data, eval_columns, gt_executions)
+        if 'map' in metrics_to_run:
+            case_report['scores']['map'] = calculate_ranking_metrics_with_columns(eval_data, eval_columns, all_gt_data, gt_columns, 'map')
+        if 'mrr' in metrics_to_run:
+            case_report['scores']['mrr'] = calculate_ranking_metrics_with_columns(eval_data, eval_columns, all_gt_data, gt_columns, 'mrr')
+        if 'ndcg' in metrics_to_run:
+            k = metric_params.get('ndcg', {}).get('k', 10)
+            case_report['scores'][f'ndcg@{k}'] = calculate_ranking_metrics_with_columns(eval_data, eval_columns, all_gt_data, gt_columns, 'ndcg', k)
+
+
+        case_report["execution_summary"]["eval_columns"] = eval_columns
+        case_report["execution_summary"]["gt_columns"] = gt_columns
             
     except Exception as e:
         case_report["evaluation_error"] = str(e)
@@ -329,3 +313,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -13,7 +13,7 @@ os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # 只需要修改这里，就可以加载不同的数据集配置！
 DATASET_BACKEND = "postgresql" # "clickhouse"
-DATASET_TO_LOAD = "synthesis_data" # "synthesis_data" 
+DATASET_TO_LOAD = "spider" # "synthesis_data" "wikipedia_multimodal"
 # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
 
 # 获取当前文件的绝对路径

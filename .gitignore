@@ -27,6 +27,8 @@ Evaluation_Framework/*.json
 Data_Synthesizer/database_synthesis/synthesis_data
 Data_Synthesizer/database_synthesis/tables.json
 Data_Synthesizer/database_synthesis/web_tables.json
+Data_Synthesizer/database_synthesis/results_ignore_UL
+Data_Synthesizer/database_synthesis/synthesis_data_ignore_UL
 
 spider_data/
 spider2_data/

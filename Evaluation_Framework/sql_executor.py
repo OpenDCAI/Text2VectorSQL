@@ -16,6 +16,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
 from queue import Empty as QueueEmpty
 from pathlib import Path
+from datetime import date, datetime
+from decimal import Decimal
 
 # Adjust path to import from parent directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -23,8 +25,20 @@ from Execution_Engine.execution_engine import ExecutionEngine
 
 class CustomJSONEncoder(json.JSONEncoder):
     def default(self, o):
+        # 检查是否是 date 或 datetime 类型
+        if isinstance(o, (date, datetime)):
+            return o.isoformat()
+
+        # 新增：检查是否是 Decimal 类型
+        if isinstance(o, Decimal):
+            # 将 Decimal 转换为字符串以保持精度，也可以转为 float(o) 但可能丢失精度
+            return str(o)
+        
+        # 检查是否是 bytes 类型
         if isinstance(o, bytes):
             return base64.b64encode(o).decode('ascii')
+        
+        # 对于其他所有类型，使用默认的编码器
         return super().default(o)
 
 # --- 新增: 沙箱化执行的核心逻辑 ---
@@ -276,8 +290,13 @@ def main():
         eval_data = load_json_file(eval_data_file)
         output_file = config['execution_results_file']
         num_workers = config.get('num_workers', 8)
+
+        # ## postgresql的并行支持不是很完善，尤其是对于arxiv这种运行时间较长的任务
+        # if db_type == 'postgresql' and 'arxiv' in base_dir and num_workers > 1:
+        #     print("注意: PostgreSQL 并行执行的稳定性有限，建议将 num_workers 设置为 1。")
+        #     num_workers = 8
         # 新增: 从配置中加载查询超时时间，默认为60秒
-        query_timeout = config.get('query_timeout', 30)
+        query_timeout = config.get('query_timeout', 50)
 
         # 解析数据集名称
         place_base_dir = Path(base_dir)

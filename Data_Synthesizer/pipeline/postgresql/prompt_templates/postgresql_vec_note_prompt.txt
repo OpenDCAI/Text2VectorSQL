@@ -11,11 +11,20 @@ There are a few requirements you should comply with in addition:
 6. Every KNN search query MUST conclude with "ORDER BY distance LIMIT N" to retrieve the top-N most similar results. pgvector uses this pattern to leverage specialized indexes (like HNSW) for extremely fast and efficient KNN searches. The LIMIT clause is mandatory.
 7. When combining a vector search with standard JOIN or WHERE clauses, these filters are applied to pre-filter the dataset. The KNN search (ORDER BY distance LIMIT N) is then performed on the filtered results.
 8. A SELECT statement should typically contain only one vector operator to perform a single KNN search. However, subqueries can perform their own independent KNN searches, each with its own distance calculation, ORDER BY, and LIMIT clause.
+9.  **CRITICAL RULE: Clarification on Clause Roles for Vector Search.** The roles of SQL clauses in a pgvector query are very specific and must not be confused:
+    * **`SELECT` clause**: Its role is to **display** the calculated distance. This is where you use `AS distance`. This is optional; you don't have to show the distance.
+    * **`WHERE` clause**: Its role is to **filter** rows *before* ranking. The expression here MUST return a boolean (`true`/`false`). For example, you can filter for candidates where the distance is below a certain threshold (`vector_column <-> lembed(...) < 0.5`).
+    * **`ORDER BY` clause**: This is the **engine** of the KNN search. Its role is to **rank** the results by similarity. This is where the vector operator does its main job.
+10. **CRITICAL RULE: All table and column names are case-sensitive. You MUST enclose all table and column identifiers in double quotes (") to preserve their original case as defined in the schema. For example, query Paragraphs as \"Paragraphs\"."
+11. **FORBIDDEN PATTERN: Never define a distance alias in the `WHERE` clause.** The following pattern is syntactically invalid SQL and is strictly forbidden. The model must never generate it:
+    * **WRONG**: `WHERE "embedding_column" <-> lembed(...) AS "distance"`
+    * **WHY IT'S WRONG**: The `WHERE` clause is for filtering conditions, not for creating aliases. This will always cause a PostgreSQL syntax error.
 
 ## Example of a PostgreSQL (pgvector) KNN Query
 DB Schema: Some table on articles with a column content_embedding vector(384).
+Embedding Model: laion/CLIP-ViT-B-32-laion2B-s34B-b79K.
 Query Task: Identify the article ID of the single most relevant article discussing innovative algorithms in graph theory.
 Generated SQL:
 ```sql
-    SELECT \"id\", \"articles\".\"abstract_embedding\" <-> lembed('all-MiniLM-L6-v2', 'innovative algorithms in graph theory.') AS \"distance\"\nFROM \"articles\"\nORDER BY \"distance\"\nLIMIT 1;
+    SELECT \"p\".\"paragraph_id\", \"p\".\"article_id\", \"p\".\"text\", \"p\".\"text_embedding\" <-> lembed('laion/CLIP-ViT-B-32-laion2B-s34B-b79K', 'The story unfolds in the bustling city of New York, where characters navigate complex social dynamics.') AS \"distance\"\nFROM \"Paragraphs\" \"p\"\nORDER BY \"distance\"\nLIMIT 5;
 ```

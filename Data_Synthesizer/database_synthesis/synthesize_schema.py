@@ -61,7 +61,7 @@ def save_to_cache(prompt, model, result):
     with open(cache_file, 'w', encoding='utf-8') as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
-def llm_inference_openai(model, prompts, api_key, api_url=None, max_tokens=10240, temperature=0.7, max_workers=32):
+def llm_inference_openai(model, prompts, api_key, api_url=None, max_tokens=10240, temperature=0.7, max_workers=64):
     """
     改进后的推理函数，带有缓存机制和多线程并行处理
     
@@ -161,6 +161,11 @@ if __name__ == '__main__':
     # 加载并抽样提示
     prompts = json.load(open("./prompts/prompts_schema_synthesis.json"))
     sample_size = int(len(prompts) * 0.1)
+
+    # 设置固定的随机种子，确保每次运行时抽样的提示列表都相同
+    # 这是让缓存能够被成功加载的关键
+    random.seed(42)
+    
     test_prompts = random.sample(prompts, sample_size)
     
     # 执行推理

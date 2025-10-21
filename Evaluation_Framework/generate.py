@@ -32,6 +32,8 @@ except ImportError:
     LLM = None
     SamplingParams = None
 
+# 长度限制关闭
+os.environ['VLLM_ALLOW_LONG_MAX_MODEL_LEN'] = '1'
 
 # def preprocess_dataset_item(item: Dict[str, Any]) -> Dict[str, Any]:
 #     """
@@ -166,6 +168,7 @@ def parse_arguments():
 
     # cache_dir 参数
     sampling_group.add_argument('--cache_dir', type=str, help='缓存目录，存放中间结果，默认 cache', default='cache')
+    sampling_group.add_argument('--open_cache', type=bool, help='打开cache, 如果为True则开启cache机制', default=True)
     
     # 解析命令行参数
     args, unknown = parser.parse_known_args()
@@ -333,11 +336,12 @@ def format_for_eval_framework(item: Dict[str, Any], generated_sql: Optional[str]
         'db_type': item.get('db_type', 'sqlite'),
         'sql': item.get('sql', ''),
         'question': item.get('question', ''),
-        'scheme': item.get('scheme', ''),
+        'schema': item.get('schema', ''),
         'syntax': item.get('syntax', ''),
         'embed': item.get('embed', ''),
         'predicted_sql': generated_sql if generated_sql else '',
         "sql_candidate": item.get("sql_candidate", []),
+        "integration_level": item.get("integration_level", "none"),
     }
     
     if reasoning:
@@ -377,7 +381,8 @@ class VLLMGenerator:
         self.llm = LLM(**llm_kwargs)
         print("✓ 模型加载完成\n")
     
-    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, cache_dir: str = "cache", database_backend: str = "sqlite", dataset_name: str= "bird") -> List[Dict[str, Any]]:
+    ## 修改点: generate 函数增加了 model_identifier 参数
+    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, cache_dir: str = "cache", open_cache: bool = False, database_backend: str = "sqlite", dataset_name: str= "bird", model_identifier: str = "default_model") -> List[Dict[str, Any]]:
         """批量生成预测，并将每个结果保存到缓存"""
         sampling_params = SamplingParams(
             temperature=temperature,
@@ -403,21 +408,32 @@ class VLLMGenerator:
         new_results = []
         successful_count = 0
         
+        ## 修改点: 在循环外先创建好本次运行的特定缓存目录
+        if open_cache:
+            output_cache_dir = Path(cache_dir) / database_backend / dataset_name / model_identifier
+            output_cache_dir.mkdir(parents=True, exist_ok=True)
+            print(f"结果将缓存至: {output_cache_dir}")
+
         print("\n正在处理生成结果并写入缓存...")
         for i, (item, output) in enumerate(tqdm(zip(dataset, outputs), total=len(dataset))):
             response_text = output.outputs[0].text
             extracted_sql, reasoning = extract_sql_from_json_response(response_text)
             
+            if extracted_sql is None and reasoning is None:
+                print(f"  ✗ 第 {i} 条数据未能提取到有效 SQL")
+                continue
+
             result = format_for_eval_framework(item, extracted_sql, reasoning)
             new_results.append(result)
 
-            # 新增：将单个结果保存到缓存目录
-            try:
-                result_path = os.path.join(cache_dir, database_backend, dataset_name, f"{result['query_id']}.json")
-                with open(result_path, 'w', encoding='utf-8') as f:
-                    json.dump(result, f, indent=2, ensure_ascii=False)
-            except Exception as e:
-                print(f"\n警告: 无法将结果 {result.get('query_id')} 保存到缓存: {e}")
+            if open_cache:
+                try:
+                    ## 修改点: 使用包含 model_identifier 的新路径来保存缓存文件
+                    result_path = output_cache_dir / f"{result['query_id']}.json"
+                    with open(result_path, 'w', encoding='utf-8') as f:
+                        json.dump(result, f, indent=2, ensure_ascii=False)
+                except Exception as e:
+                    print(f"\n警告: 无法将结果 {result.get('query_id')} 保存到缓存: {e}")
 
             if extracted_sql:
                 successful_count += 1
@@ -480,7 +496,8 @@ class APIGenerator:
         
         return format_for_eval_framework(item, extracted_sql, reasoning)
     
-    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, num_threads: int = 5, cache_dir: str = "cache", database_backend: str = "sqlite", dataset_name: str= "bird") -> List[Dict[str, Any]]:
+    ## 修改点: generate 函数增加了 model_identifier 参数
+    def generate(self, dataset: List[Dict[str, Any]], max_tokens: int = 2048, temperature: float = 0.1, top_p: float = 1.0, top_k: int = -1, num_threads: int = 5, cache_dir: str = "cache", open_cache: bool = False, database_backend: str = "sqlite", dataset_name: str= "bird", model_identifier: str = "default_model") -> List[Dict[str, Any]]:
         """多线程批量生成，并将每个结果保存到缓存"""
         print(f"\n开始多线程生成...")
         print(f"  本次待处理数据大小: {len(dataset)}")
@@ -492,6 +509,12 @@ class APIGenerator:
         successful_count = 0
         lock = Lock()
         
+        ## 修改点: 在循环外先创建好本次运行的特定缓存目录
+        if open_cache:
+            output_cache_dir = Path(cache_dir) / database_backend / dataset_name / model_identifier
+            output_cache_dir.mkdir(parents=True, exist_ok=True)
+            print(f"结果将缓存至: {output_cache_dir}")
+
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             # 提交任务，并保留原始索引
             futures = {executor.submit(self._process_single_item, item, max_tokens, temperature, top_p): index for index, item in enumerate(dataset)}
@@ -503,17 +526,18 @@ class APIGenerator:
                         result = future.result()
                         results_map[original_index] = result
                         
-                        # 新增：将单个结果保存到缓存目录
-                        with lock:
-                            try:
-                                result_path = os.path.join(cache_dir, database_backend, dataset_name, f"{result['query_id']}.json")
-                                with open(result_path, 'w', encoding='utf-8') as f:
-                                    json.dump(result, f, indent=2, ensure_ascii=False)
-                            except Exception as e:
-                                print(f"\n警告: 无法将结果 {result.get('query_id')} 保存到缓存: {e}")
-                            
-                            if result['predicted_sql']:
-                                successful_count += 1
+                        if open_cache:
+                            with lock:
+                                try:
+                                    ## 修改点: 使用包含 model_identifier 的新路径来保存缓存文件
+                                    result_path = output_cache_dir / f"{result['query_id']}.json"
+                                    with open(result_path, 'w', encoding='utf-8') as f:
+                                        json.dump(result, f, indent=2, ensure_ascii=False)
+                                except Exception as e:
+                                    print(f"\n警告: 无法将结果 {result.get('query_id')} 保存到缓存: {e}")
+                                
+                                if result['predicted_sql']:
+                                    successful_count += 1
                                 
                     except Exception as e:
                         print(f"  ✗ 处理第 {original_index} 条数据时出错: {e}")
@@ -583,31 +607,48 @@ def main():
         database_backends = place_dataset.parts[-4]
         print(f"数据库后端: {database_backends}")
 
+        ## 修改点: 根据模式确定模型标识符，用于区分不同模型的缓存
+        model_identifier = ""
+        if args.mode == 'vllm':
+            if not args.model_path:
+                raise ValueError("vLLM 模式需要指定 --model_path")
+            model_identifier = Path(args.model_path).name
+        elif args.mode == 'api':
+            if not args.model_name:
+                raise ValueError("API 模式需要指定 --model_name")
+            model_identifier = args.model_name
+        
+        if not model_identifier:
+             raise ValueError("无法确定模型标识符，请检查模型参数配置")
+        print(f"模型标识符: {model_identifier}")
+
         
         # --- 中断恢复逻辑 (已更新) ---
-        print(f"\n正在从 '{CACHE_DIR}' 目录及其子目录加载缓存...")
+        ## 修改点: 构建精确的缓存路径，不再遍历整个 CACHE_DIR
+        specific_cache_dir = Path(CACHE_DIR) / database_backends / dataset_name / model_identifier
+        print(f"\n正在从特定缓存目录加载: {specific_cache_dir}")
+        
         cached_results = []
         processed_ids = set()
-        # 使用 os.walk 递归遍历所有目录和文件
-        for root, _, files in os.walk(CACHE_DIR):
-            for filename in files:
-                if filename.endswith('.json'):
-                    file_path = os.path.join(root, filename)
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            if 'query_id' in data:
-                                # 检查 ID 是否已处理，防止重复加载（虽然不太可能发生）
-                                if data['query_id'] not in processed_ids:
-                                    cached_results.append(data)
-                                    processed_ids.add(data['query_id'])
-                            else:
-                                print(f"  - 警告: 缓存文件 {filename} 缺少 'query_id'，已跳过。")
-                    except (json.JSONDecodeError, IOError) as e:
-                        print(f"  - 警告: 无法加载或解析缓存文件 {filename}: {e}，已跳过。")
 
-                if cached_results:
-                    print(f"✓ 成功加载 {len(cached_results)} 条已处理的数据。")
+        if specific_cache_dir.exists():
+            for file_path in specific_cache_dir.glob('*.json'):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        if 'query_id' in data:
+                            if data['query_id'] not in processed_ids and data.get('predicted_sql'):
+                                cached_results.append(data)
+                                processed_ids.add(data['query_id'])
+                        else:
+                            print(f"  - 警告: 缓存文件 {file_path.name} 缺少 'query_id'，已跳过。")
+                except (json.JSONDecodeError, IOError) as e:
+                    print(f"  - 警告: 无法加载或解析缓存文件 {file_path.name}: {e}，已跳过。")
+        else:
+            print("  - 特定缓存目录不存在，无需加载。")
+
+        if cached_results:
+            print(f"✓ 成功加载 {len(cached_results)} 条已处理的数据。")
 
         # 过滤出未处理的数据项
         items_to_process = [item for item in dataset if get_query_id(item) not in processed_ids]
@@ -619,9 +660,6 @@ def main():
             print("所有数据均已处理完毕。")
         else:
             if args.mode == 'vllm':
-                if not args.model_path:
-                    raise ValueError("vLLM 模式需要指定 --model_path")
-                
                 generator = VLLMGenerator(
                     model_path=args.model_path,
                     tensor_parallel_size=args.tensor_parallel_size,
@@ -630,6 +668,7 @@ def main():
                     trust_remote_code=args.trust_remote_code,            
                 )
                 
+                ## 修改点: 将 model_identifier 传入 generate 函数
                 new_results = generator.generate(
                     dataset=items_to_process,
                     max_tokens=args.max_tokens,
@@ -637,14 +676,13 @@ def main():
                     top_p=args.top_p,
                     top_k=args.top_k,
                     cache_dir=CACHE_DIR,
+                    open_cache=args.open_cache,
                     database_backend=database_backends,
-                    dataset_name=dataset_name
+                    dataset_name=dataset_name,
+                    model_identifier=model_identifier
                 )
                 
             elif args.mode == 'api':
-                if not args.api_url or not args.api_key or not args.model_name:
-                    raise ValueError("API 模式需要指定 --api_url, --api_key 和 --model_name")
-                
                 generator = APIGenerator(
                     api_url=args.api_url,
                     api_key=args.api_key,
@@ -653,6 +691,7 @@ def main():
                     retry_times=args.retry_times
                 )
                 
+                ## 修改点: 将 model_identifier 传入 generate 函数
                 new_results = generator.generate(
                     dataset=items_to_process,
                     max_tokens=args.max_tokens,
@@ -660,8 +699,10 @@ def main():
                     top_p=args.top_p,
                     num_threads=args.num_threads,
                     cache_dir=CACHE_DIR,
+                    open_cache=args.open_cache,
                     database_backend=database_backends,
-                    dataset_name=dataset_name
+                    dataset_name=dataset_name,
+                    model_identifier=model_identifier
                 )
             else:
                 raise ValueError(f"未知模式: {args.mode}")

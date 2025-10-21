@@ -113,15 +113,77 @@ if __name__ == '__main__':
     ]
     
     API_MODELS = [
-        'gpt-4o',
-        'gpt-4o-mini',
-        'gpt-4-turbo'
+        # 'gpt-4o', 
+        # 'gpt-4o-mini',
+        # 'gpt-4-turbo',
+        # 'claude-3-5-haiku-20241022',
+        # 'claude-3-7-sonnet-20250219',
+        # 'claude-4-sonnet',
+        # 'gemini-2.5-flash',
+        # 'gemini-2.5-pro',
+        # 'qwen2.5-72b-instruct',
+        # 'qwen2.5-32b-instruct',
+        # 'deepseek-v3.1-250821',
+        'grok-3',
+        'grok-4',
     ]
     
     # 如果没有VLLM模型，可以将此列表设置为空: VLLM_MODELS = []
     VLLM_MODELS = [
-        # 'Qwen/Qwen2.5-72B-Instruct',
-        # 'Llama/Llama-3-70b-chat-hf'
+        '/mnt/b_public/data/ydw/model/OmniSQL-7B',
+        '/mnt/b_public/data/ydw/model/OmniSQL-14B',
+        '/mnt/b_public/data/ydw/model/OmniSQL-32B',
+    
+        # # # Open-source LLMs (˜7B)
+        # '/mnt/b_public/data/ydw/model/deepseek-coder-6.7b-instruct',
+        # '/mnt/b_public/data/ydw/model/Qwen2.5-Coder-7B-Instruct',
+        # '/mnt/b_public/data/ydw/model/Qwen2.5-7B-Instruct',
+        # '/mnt/b_public/data/ydw/model/OpenCoder-8B-Instruct',
+        # '/mnt/b_public/data/ydw/model/Meta-Llama-3.1-8B-Instruct',
+        # # # # #'/mnt/b_public/data/ydw/model/granite-8b-code-instruct-128k',
+        # # # '/mnt/b_public/data/ydw/model/granite-3.1-8b-instruct',
+
+        # UniVectorSQL
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-LoRA-Step600',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-LoRA-Step800',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-LoRA-Step1100',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step1100',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step1400',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step1800',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step2100',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step2500',
+        
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step900',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step1000',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step1100',
+
+        # # # ## Open-source LLMs (14B-32B)
+        # '/mnt/b_public/data/ydw/model/Qwen2.5-Coder-14B-Instruct',
+        # '/mnt/b_public/data/ydw/model/Qwen2.5-14B-Instruct',
+        # '/mnt/b_public/data/ydw/model/starcoder2-15b-instruct-v0.1',
+        # '/mnt/b_public/data/ydw/model/DeepSeek-Coder-V2-Lite-Instruct',
+        # # # '/mnt/b_public/data/ydw/model/granite-20b-code-instruct-8k',
+        # '/mnt/b_public/data/ydw/model/Codestral-22B-v0.1',
+
+        # # # # # ## Open-source LLMs (≥ 32B)
+        # '/mnt/b_public/data/ydw/model/Qwen2.5-Coder-32B-Instruct',
+        # # # # # #'/mnt/b_public/data/ydw/model/Qwen2.5-32B-Instruct',  api
+        # '/mnt/b_public/data/ydw/model/deepseek-coder-33b-instruct',
+        # # # # '/mnt/b_public/data/ydw/model/granite-34b-code-instruct-8k',
+        # # # '/mnt/b_public/data/ydw/model/Mixtral-8x7B-Instruct-v0.1',
+        # '/mnt/b_public/data/ydw/model/Meta-Llama-3.1-70B-Instruct',
+        # # # # # # '/mnt/b_public/data/ydw/model/Qwen2.5-72B-Instruct', api
+        # # # # # # '/mnt/b_public/data/ydw/model/DeepSeek-V3 (671B, MoE)', api
+        
+        # '/mnt/b_public/data/ydw/model/Qwen2.5-Coder-7B-Instruct',
+        # '/mnt/b_public/data/ydw/model/Qwen2.5-Coder-32B-Instruct',
+        # # # #'/mnt/b_public/data/ydw/model/Qwen2.5-32B-Instruct',  api
+        # '/mnt/b_public/data/ydw/model/deepseek-coder-33b-instruct',
+        # # '/mnt/b_public/data/ydw/model/granite-34b-code-instruct-8k',
+        # '/mnt/b_public/data/ydw/model/Mixtral-8x7B-Instruct-v0.1',
+        # '/mnt/b_public/data/ydw/model/Meta-Llama-3.1-70B-Instruct',
+        # # # # '/mnt/b_public/data/ydw/model/Qwen2.5-72B-Instruct', api
+        # # # # '/mnt/b_public/data/ydw/model/DeepSeek-V3 (671B, MoE)', api
     ]
     
     EXECUTION_RESULTS_FILES = [
