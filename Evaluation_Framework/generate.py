@@ -34,7 +34,7 @@ except ImportError:
 
 # 长度限制关闭
 os.environ['VLLM_ALLOW_LONG_MAX_MODEL_LEN'] = '1'
-
+os.environ['VLLM_USE_V1'] = '0'
 # def preprocess_dataset_item(item: Dict[str, Any]) -> Dict[str, Any]:
 #     """
 #     对数据集中的每个项目进行预处理，按照指定顺序拼接提示词
@@ -373,6 +373,7 @@ class VLLMGenerator:
             'tensor_parallel_size': tensor_parallel_size,
             'gpu_memory_utilization': gpu_memory_utilization,
             'trust_remote_code': trust_remote_code,
+            'enforce_eager': True,
         }
         
         if max_model_len is not None:

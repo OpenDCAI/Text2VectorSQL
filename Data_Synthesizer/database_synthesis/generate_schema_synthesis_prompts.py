@@ -2908,7 +2908,7 @@ def generate_schema_form():
         """
         )
     else:
-        return ("All table and column names must follow the camel hump naming convention.",
+        return ("No hyphens or underscores are allowed in table names and column names. Instead, camelCase should be used.",
         """
 {{
   "table_num": 5,

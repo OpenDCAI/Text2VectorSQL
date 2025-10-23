@@ -124,15 +124,16 @@ if __name__ == '__main__':
         # 'qwen2.5-72b-instruct',
         # 'qwen2.5-32b-instruct',
         # 'deepseek-v3.1-250821',
-        'grok-3',
-        'grok-4',
+        # 'grok-3',
+        # 'grok-4',
+        # 'command-r-plus-08-2024'
     ]
     
     # 如果没有VLLM模型，可以将此列表设置为空: VLLM_MODELS = []
     VLLM_MODELS = [
-        '/mnt/b_public/data/ydw/model/OmniSQL-7B',
-        '/mnt/b_public/data/ydw/model/OmniSQL-14B',
-        '/mnt/b_public/data/ydw/model/OmniSQL-32B',
+        # '/mnt/b_public/data/ydw/model/OmniSQL-7B',
+        # '/mnt/b_public/data/ydw/model/OmniSQL-14B',
+        # '/mnt/b_public/data/ydw/model/OmniSQL-32B',
     
         # # # Open-source LLMs (˜7B)
         # '/mnt/b_public/data/ydw/model/deepseek-coder-6.7b-instruct',
@@ -152,10 +153,26 @@ if __name__ == '__main__':
         # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step1800',
         # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step2100',
         # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step2500',
+
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-No_CoT_Step100',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-No_CoT_Step300',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-No_CoT_Step500',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-No_CoT_Step800',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-No_CoT_Step1000',
         
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step200',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step400',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step600',
         # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step900',
         # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step1000',
         # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step1100',
+
+        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step500',
+        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step1000',
+        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step1500',
+        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step500',
+        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step1000',
+        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step1500',
 
         # # # ## Open-source LLMs (14B-32B)
         # '/mnt/b_public/data/ydw/model/Qwen2.5-Coder-14B-Instruct',

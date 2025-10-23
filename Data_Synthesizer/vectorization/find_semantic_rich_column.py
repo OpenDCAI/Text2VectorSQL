@@ -102,7 +102,7 @@ def main_find_rich_semantic_column(model,api_key,api_url,input_file,output_file,
         "input_file": input_file,
         "output_file": output_file
     }
-    logger.info(f"加载的配置: {config}")
+    print(f"加载的配置: {config}")
     
     # 确保输出目录存在
     output_dir = Path(output_file).parent

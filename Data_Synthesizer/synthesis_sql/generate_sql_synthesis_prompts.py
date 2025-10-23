@@ -266,7 +266,7 @@ def write_large_json(data: List[Dict], output_path: str, chunk_size: int = 500):
         f.write(']')
 
 def main_generate_sql_synthesis_prompts(db_path="./results/vector_databases_toy",prompt_tpl_path="./prompt_templates/sql_synthesis_prompt.txt",functions_path="./prompt_templates/sqlite_funcs.json",output_dir="./prompts",output_name="sql_synthesis_prompts.json",embedding_model="all-MiniLM-L6-v2",sql_num=6):
-    random.seed(42)
+    # random.seed(42)
 
     # 目录配置 --------------------------------------------------
     prompt_tpl    = open(prompt_tpl_path,encoding='utf-8').read()

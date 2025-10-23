@@ -33,7 +33,7 @@ except ImportError:
 
 # --- Configuration Area ---
 # Input/Output File Configuration
-INPUT_SQL_FILE_PATH = '/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/bird/input_llm.json'
+INPUT_SQL_FILE_PATH = '/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data_deversity/candidate_sql.json'
 
 # Generate output paths dynamically from the input path
 base_path, _ = os.path.splitext(INPUT_SQL_FILE_PATH)

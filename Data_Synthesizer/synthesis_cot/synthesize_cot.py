@@ -83,6 +83,9 @@ def llm_inference(dataset, api_key, base_url, llm_model_name, max_workers, cache
     # 3. 筛选出需要新处理的 prompts
     prompts_to_process = []
     for data in dataset:
+        if "cot_synthesis_prompt" not in data:
+            print("Warning: 'cot_synthesis_prompt' key not found in dataset item. Skipping.")
+            continue
         prompt = data["cot_synthesis_prompt"]
         if prompt not in cache:
             prompts_to_process.append(prompt)
@@ -162,6 +165,8 @@ def llm_inference(dataset, api_key, base_url, llm_model_name, max_workers, cache
     # 6. 组装结果
     results = []
     for data in dataset:
+        if "cot_synthesis_prompt" not in data:
+            continue
         prompt = data["cot_synthesis_prompt"]
         data["responses"] = cache.get(
             prompt, ["Error: Response not found in cache after processing."]

@@ -672,7 +672,7 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
-    parser.add_argument('--source', default='/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data', help="Source SQLite database file or folder path.")
+    parser.add_argument('--source', default='/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data_deversity/vector_databases', help="Source SQLite database file or folder path.")
     parser.add_argument('--target', default='both', choices=['postgresql', 'clickhouse', 'both'], help="Target database type. 'both' migrates to both backends.")
     parser.add_argument('--host', help="Target DB host (for single-target mode).")
     parser.add_argument('--port', type=int, help="Target DB port (for single-target mode).")

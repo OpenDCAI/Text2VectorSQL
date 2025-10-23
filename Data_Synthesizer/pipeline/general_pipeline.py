@@ -12,8 +12,8 @@ import sys
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # 只需要修改这里，就可以加载不同的数据集配置！
-DATASET_BACKEND = "postgresql" # "clickhouse"
-DATASET_TO_LOAD = "spider" # "synthesis_data" "wikipedia_multimodal"
+DATASET_BACKEND = "clickhouse" # "clickhouse"
+DATASET_TO_LOAD = "synthesis_data_deversity" # "synthesis_data" "wikipedia_multimodal" "synthesis_data_deversity"
 # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
 
 # 获取当前文件的绝对路径
@@ -274,7 +274,7 @@ def main():
     # #下面的算子只有训练数据集需要
     # print("################################################")
     # print("生成合成cot提示词")
-    # generate_cot_prompts(config.paths.gene_cot_prompts_dataset_json_path,config.paths.gene_cot_prompts_tables_json_path,config.paths.gene_cot_prompts_prompt_tamplate_path,config.paths.gene_cot_prompts_output_prompt_path, config.parameters.dataset_backend, config.services.openai.get('embedding_model_name'))
+    # generate_cot_prompts(config.paths.gene_cot_prompts_dataset_json_path,config.paths.gene_cot_prompts_tables_json_path,config.paths.gene_cot_prompts_prompt_tamplate_path,config.paths.database_note_prompt_path,config.paths.gene_cot_prompts_output_prompt_path, config.parameters.dataset_backend, config.services.openai.get('embedding_model_name'))
 
     # print("################################################")
     # print("合成cot")

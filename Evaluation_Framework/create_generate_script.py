@@ -178,6 +178,8 @@ if __name__ == '__main__':
         '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step500',
         '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step1000',
         '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step1500',
+        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step500',
+        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step1000',
         '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step1500',
 
 

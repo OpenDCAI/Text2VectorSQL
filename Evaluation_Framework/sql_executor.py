@@ -354,16 +354,47 @@ def main():
         cached_results = []
         processed_ids = set()
         if not args.no_cache:
+            # 遍历缓存目录中的所有文件
             for filename in os.listdir(cache_dir):
                 if filename.endswith('.json'):
                     try:
-                        with open(os.path.join(cache_dir, filename), 'r', encoding='utf-8') as f:
+                        filepath = os.path.join(cache_dir, filename)
+                        with open(filepath, 'r', encoding='utf-8') as f:
                             result = json.load(f)
-                            query_id = result['eval_case'].get('query_id')
-                            if query_id:
-                                cached_results.append(result)
-                                processed_ids.add(query_id)
-                    except (IOError, json.JSONDecodeError): continue
+                        
+                        query_id = result.get('eval_case', {}).get('query_id')
+                        if not query_id:
+                            continue
+
+                        # --- 核心修改：新增的缓存验证逻辑 ---
+                        is_valid = True
+                        eval_execution = result.get('eval_execution')
+                        
+                        # 验证条件 1: 'eval_execution' 字段不存在或为空
+                        if not eval_execution:
+                            is_valid = False
+                        # 验证条件 2: 'eval_execution' 字段中包含错误信息
+                        elif 'error' in eval_execution:
+                            is_valid = False
+                        # 验证条件 3: 结果的顶层存在 'execution_error' 字段
+                        elif 'execution_error' in result:
+                            is_valid = False
+                        
+                        # --- 根据验证结果决定如何处理 ---
+                        if is_valid:
+                            # 如果缓存有效，则正常加载并记录ID
+                            cached_results.append(result)
+                            processed_ids.add(query_id)
+                        else:
+                            # 如果缓存无效，则不做任何事。
+                            # 这将导致它的 query_id 不会加入 processed_ids，
+                            # 从而在后续步骤中被重新执行。
+                            print(f"-> Invalid or error cache for query_id '{query_id}' found. Re-executing.")
+                            
+                    except (IOError, json.JSONDecodeError) as e:
+                        # 如果JSON文件本身损坏或无法解析，也跳过，让它重新执行
+                        print(f"\nWarning: Corrupted cache file '{filename}' will be re-processed. Error: {e}")
+                        continue
         
         if cached_results:
             print(f"Loaded {len(cached_results)} completed executions from cache.")

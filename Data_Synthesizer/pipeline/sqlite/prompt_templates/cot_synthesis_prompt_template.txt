@@ -23,6 +23,9 @@ SELECT * FROM table;
 {sql}
 ```
 
+[Rules of database backend and extension]
+{database_note}
+
 [Function Context]:
 The function lembed('{embedding_model_name}', text) is available. It converts text into a vector embedding.
 

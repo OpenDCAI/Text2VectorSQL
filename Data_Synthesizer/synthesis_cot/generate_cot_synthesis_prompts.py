@@ -10,7 +10,7 @@ def remove_sql_comments(sql):
     sql = re.sub(r'/\*.*?\*/', '', sql, flags=re.DOTALL)
     return sql.strip()
 
-def generate_cot_prompts(dataset_json_path="./results/question_and_sql_pairs.json", tables_json_path="sqlite/results/enhanced_embedding_table_vector.json", prompt_tamplate_path="sqlite/prompt_templates/cot_synthesis_prompt_template.txt", output_prompt_path="sqlite/prompts/cot_synthesis_prompts.json", database_backend="sqlite", embedding_model_name="all-MiniLM-L6-v2"):
+def generate_cot_prompts(dataset_json_path="./results/question_and_sql_pairs.json", tables_json_path="sqlite/results/enhanced_embedding_table_vector.json", prompt_tamplate_path="sqlite/prompt_templates/cot_synthesis_prompt_template.txt", database_note_template="./sqlite/prompt_templates/sqlite_vec_note_prompt.txt", output_prompt_path="sqlite/prompts/cot_synthesis_prompts.json", database_backend="sqlite", embedding_model_name="all-MiniLM-L6-v2"):
     dataset_json = json.load(open(dataset_json_path))
     print("len(question-sql):", len(dataset_json))
     
@@ -34,13 +34,14 @@ def generate_cot_prompts(dataset_json_path="./results/question_and_sql_pairs.jso
             schema = "\n\n".join(db_id2ddls[data["db_id"]])
         else:
             schema = data["schema"]
-
+        database_note = open(database_note_template).read()
         data["cot_synthesis_prompt"] = prompt_tamplate.format(
             database_backend = database_backend,
             schema = schema,
             question = question,
             sql = remove_sql_comments(data["sql"]),
-            embedding_model_name = embedding_model_name
+            embedding_model_name = embedding_model_name,
+            database_note = database_note
         )
     # 创建输出目录
     os.makedirs("sqlite/prompts", exist_ok=True)

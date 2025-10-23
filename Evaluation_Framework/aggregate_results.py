@@ -46,6 +46,7 @@ DEFAULT_MODEL_CONFIG = {
         {"name": "api_gemini-2.5-pro", "display_name": "Gemini-2.5-Pro"},
         {"name": "api_grok-3", "display_name": "Grok-3"},
         {"name": "api_grok-4", "display_name": "Grok-4"},
+        {"name": "api_command-r-plus-08-2024", "display_name": "Command-R-Plus-08-2024"},
 
         {"name": "vllm_OmniSQL-7B", "display_name": "OmniSQL-7B"},
         {"name": "vllm_OmniSQL-14B", "display_name": "OmniSQL-14B"},
@@ -59,15 +60,32 @@ DEFAULT_MODEL_CONFIG = {
         {"name": "vllm_UniVectorSQL-7B-LoRA-Step600", "display_name": "UniVectorSQL-7B-LoRA-Step600"},
         {"name": "vllm_UniVectorSQL-7B-LoRA-Step800", "display_name": "UniVectorSQL-7B-LoRA-Step800"},
         {"name": "vllm_UniVectorSQL-7B-LoRA-Step1100", "display_name": "UniVectorSQL-7B-LoRA-Step1100"},
+
         {"name": "vllm_UniVectorSQL-7B-Step1100", "display_name": "UniVectorSQL-7B-Step1100"},
         {"name": "vllm_UniVectorSQL-7B-Step1400", "display_name": "UniVectorSQL-7B-Step1400"},
         {"name": "vllm_UniVectorSQL-7B-Step1800", "display_name": "UniVectorSQL-7B-Step1800"},
         {"name": "vllm_UniVectorSQL-7B-Step2100", "display_name": "UniVectorSQL-7B-Step2100"},
         {"name": "vllm_UniVectorSQL-7B-Step2500", "display_name": "UniVectorSQL-7B-Step2500"},
-        
+
+        {"name": "vllm_UniVectorSQL-7B-No_CoT_Step100", "display_name": "UniVectorSQL-7B-No_CoT_Step100"},
+        {"name": "vllm_UniVectorSQL-7B-No_CoT_Step300", "display_name": "UniVectorSQL-7B-No_CoT_Step300"},
+        {"name": "vllm_UniVectorSQL-7B-No_CoT_Step500", "display_name": "UniVectorSQL-7B-No_CoT_Step500"},
+        {"name": "vllm_UniVectorSQL-7B-No_CoT_Step800", "display_name": "UniVectorSQL-7B-No_CoT_Step800"},
+        {"name": "vllm_UniVectorSQL-7B-No_CoT_Step1000", "display_name": "UniVectorSQL-7B-No_CoT_Step1000"},
+
+        {"name": "vllm_UniVectorSQL-14B-LoRA-Step200", "display_name": "UniVectorSQL-14B-LoRA-Step200"},
+        {"name": "vllm_UniVectorSQL-14B-LoRA-Step400", "display_name": "UniVectorSQL-14B-LoRA-Step400"},
+        {"name": "vllm_UniVectorSQL-14B-LoRA-Step600", "display_name": "UniVectorSQL-14B-LoRA-Step600"}, 
         {"name": "vllm_UniVectorSQL-14B-LoRA-Step900", "display_name": "UniVectorSQL-14B-LoRA-Step900"},
         {"name": "vllm_UniVectorSQL-14B-LoRA-Step1000", "display_name": "UniVectorSQL-14B-LoRA-Step1000"},
         {"name": "vllm_UniVectorSQL-14B-LoRA-Step1100", "display_name": "UniVectorSQL-14B-LoRA-Step1100"},
+
+        {"name": "vllm_UniVectorSQL-14B-No_CoT-Step500", "display_name": "UniVectorSQL-14B-No_CoT-Step500"},
+        {"name": "vllm_UniVectorSQL-14B-No_CoT-Step1000", "display_name": "UniVectorSQL-14B-No_CoT-Step1000"},
+        {"name": "vllm_UniVectorSQL-14B-No_CoT-Step1500", "display_name": "UniVectorSQL-14B-No_CoT-Step1500"},
+        {"name": "vllm_UniVectorSQL-14B-Step500", "display_name": "UniVectorSQL-14B-Step500"},
+        {"name": "vllm_UniVectorSQL-14B-Step1000", "display_name": "UniVectorSQL-14B-Step1000"},
+        {"name": "vllm_UniVectorSQL-14B-Step1500", "display_name": "UniVectorSQL-14B-Step1500"},
 
         {"name": "vllm_Qwen2.5-Coder-14B-Instruct", "display_name": "Qwen2.5-Coder-14B-Instruct"},
         {"name": "vllm_Qwen2.5-14B-Instruct", "display_name": "Qwen2.5-14B-Instruct"},

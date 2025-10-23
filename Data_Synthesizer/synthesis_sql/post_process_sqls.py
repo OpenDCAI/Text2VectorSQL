@@ -105,6 +105,7 @@ def execute_sql_simple(sql: str, db_path: str) -> Tuple[Any, int]:
     except Exception as e:
         print(f"error : {e}")
         print(f"error sql: {sql}")
+        raise
     finally:
         if conn: conn.close()
 

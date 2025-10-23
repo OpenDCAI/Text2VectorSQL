@@ -127,11 +127,19 @@ def post_process_cot(results_path, output_dir, db_type="sqlite"):
         batch_db_ids, batch_original_sqls = [], []
         for cot_result in batch_cot_results:
             db_id = cot_result["db_id"]
+
+            if not db_id or not isinstance(db_id, str):
+                print(f"Found invalid db_id: {db_id}. Skipping this entry.")
+                # 你可以选择跳过这个无效数据
+                # 这里我们简单地不把它加入执行列表
+                continue
+            
             batch_db_ids.extend([db_id] * sampling_num)
             batch_original_sqls.extend([parse_response(response) for response in cot_result["responses"]])
         
         # --- SQL 预处理步骤被移除 ---
         # 现在直接将原始 SQL 交给执行引擎
+        engine.execute(sql=batch_original_sqls[0], db_type=db_type, db_identifier=batch_db_ids[0])
 
         # 使用执行引擎并行执行 SQL
         execution_results = execute_sqls_parallel(
