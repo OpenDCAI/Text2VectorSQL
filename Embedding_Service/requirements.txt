@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+pydantic
+sentence-transformers
+torch
+PyYAML
+requests
+Pillow

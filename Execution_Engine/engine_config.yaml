@@ -29,8 +29,8 @@ database_connections:
 timeouts:
   embedding_service: 1      # Embedding服务调用超时
   database_connection: 1    # 数据库连接超时
-  sql_execution: 50          # SQL执行超时
-  total_execution: 50       # 总执行超时
+  sql_execution: 60          # SQL执行超时
+  total_execution: 60       # 总执行超时
 
 # 日志配置
 logging:
