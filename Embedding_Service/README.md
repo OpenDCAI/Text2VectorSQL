@@ -1,6 +1,6 @@
-# Embedding Service 模块说明
+# 嵌入服务 (Embedding Service)
 
-本模块提供一个高性能、支持多模型、多GPU的文本和图像向量化API服务。它基于FastAPI和Sentence-Transformers构建,能够自动管理模型下载与缓存。
+嵌入服务提供一个高性能、支持多模型、多GPU的文本和图像向量化API服务。它基于FastAPI和Sentence-Transformers构建,能够自动管理模型下载与缓存。
 
 ## 主要功能
 
@@ -20,7 +20,7 @@
 
 - `server.py`: 核心服务文件。实现了FastAPI应用,负责模型加载、多进程池管理和API请求处理。
 - `multi_server.py`: `server.py`的多模态版本，支持同时处理文本和图像嵌入请求（弃用）。
-- `multi_client.py`: 用于测试服务的客户端示例代码。
+- `multi_client.py`: 用于测试图片嵌入服务的客户端示例代码。
 - `run.sh`: 启动服务的便捷脚本。
 - `config.yaml`(需自行创建): 服务和模型的配置文件。
 
@@ -53,17 +53,11 @@
         max_model_len: 512
     
       # 多模态模型示例 (CLIP)
-      - name: "clip-ViT-B-32"
-        hf_model_path: "sentence-transformers/clip-ViT-B-32"
-        local_model_path: "./models/clip-ViT-B-32"
+      - name: "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
+        hf_model_path: "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
+        local_model_path: "./models/CLIP-ViT-B-32-laion2B-s34B-b79K"
         trust_remote_code: true
-    
-      # 多GPU张量并行示例 (需要至少2个GPU)
-      # - name: "gemma-2b"
-      #   hf_model_path: "google/gemma-2b"
-      #   local_model_path: "./models/gemma-2b"
-      #   trust_remote_code: true
-      #   tensor_parallel_size: 2 # 使用2个GPU
+        tensor_parallel_size: 2 # 使用2个GPU
     ```
     **注意**: 请确保`local_model_path`指向的目录存在或有权限创建。
 

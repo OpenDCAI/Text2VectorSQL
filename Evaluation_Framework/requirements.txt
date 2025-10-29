@@ -1,0 +1,6 @@
+requests
+PyYAML
+tqdm
+numpy
+pyparsing
+sqlalchemy

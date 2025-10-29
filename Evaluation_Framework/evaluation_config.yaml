@@ -36,7 +36,7 @@ execution_results_file: sql_execution_results.json
 # Embedding service will be automatically started by default
 embedding_service:
   # Whether to automatically manage the embedding service lifecycle
-  auto_manage: true
+  auto_manage: false
   
   # Server configuration
   host: "127.0.0.1"

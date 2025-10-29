@@ -1,109 +1,146 @@
-# 说明
-## pipeline目录
-这个目录用于整个数据合成过程。
-我们提供了一个openai的配置文件示例config.yaml.example。
-你可以删除文件名中的.example后，配置api-key字段，来使用默认的openai api方法调用大模型。
-也可以修改脚本，将openai的调用换成ollama或者vllm（这需要你自己修改每一个文件中的大模型调用的实现）。
-配置好大模型调用api-key后，可以直接运行：
-```bash
-python general_pipeline.py
+# 数据合成 (Data_Synthesizer)
+
+## 简介
+
+Data_Synthesizer是一个功能强大的数据合成流水线，专为生成高质量Text2VectorSQL数据集而设计。本模块从基础数据库出发，通过一系列自动化步骤，最终产出包含数据库、自然语言问题、VectorSQL查询以及思维链（Chain-of-Thought）的完整数据集，为训练和评测先进的Text2VectorSQL模型提供支持。
+
+该流水线支持多种数据库后端，如 SQLite、PostgreSQL 和 ClickHouse，并集成了向量化能力，使模型能够理解和利用数据中的语义信息。
+
+## 核心功能
+
+- **数据库合成与增强 (`database_synthesis`)**: 从零开始或基于现有Web表格，自动生成结构化的数据库，并可对数据库模式进行增强，增加其复杂性和真实性。
+- **数据库向量化 (`vectorization`)**: 识别数据库中的“语义丰富”列（如描述性文本），利用Sentence Transformer模型为这些列生成向量嵌入，并构建支持向量查询的新数据库。这是实现语义搜索的关键。
+- **VectorSQL与问题合成 (`synthesis_sql`, `synthesis_nl`)**: 基于（向量化的）数据库模式，自动生成不同复杂度的VectorSQL查询，并为每个VectorSQL查询生成对应的自然语言问题。
+- **思维链合成 (`synthesis_cot`)**: 为每一个“数据库-问题-VectorSQL”三元组，生成详细的推理步骤（即思维链），解释从问题到VectorSQL的推导过程。这对于训练具有更强推理能力的模型至关重要。
+- **统一流水线 (`pipeline`)**: 提供一个总控脚本 `general_pipeline.py`，通过简单的配置即可运行完整的端到端数据合成流程，同时也支持对流程中每一步的独立调用和微调。
+
+## 目录结构
+
 ```
-日志在logging/out.log
-就可以在"{database_backend}/results/{datasets}"得到最终文件(synthetic_text2sql_dataset.json)和向量数据库，包括一系列中间文件。
-
-下面将介绍这个pipeline的每一步，详细描述每个文件的作用。你也可以单独调用，精细调整其中的每一步操作。
-
-——————————————————————————————————————————————————————————————————————————————————————
-
-如果你希望自己控制其中的每一步过程，那么可以参考下面的执行。下面介绍了本目录下每个文件的具体作用。
-## 第一部分 数据库向量化--vectorization目录
-### 生成schema
-```bash
-python generate_schema.py --db-dir train/toy_spider --output-file train/table.json
-```
-
-### 为schema填入示例行
-先使用enhance_tables_toy.py往schema加入每个数据表格的示例信息，运行：
-```bash
-python enhance_tables_toy.py
-```
-
-### 找到语言信息丰富的列
-注意：要排除地名和人名这种语义信息不丰富的列
-运行：
-```bash
-python find_semantic_rich_column.py
+Data_Synthesizer/
+├─── database_synthesis/   # 从Web表格合成数据库
+├─── pipeline/             # 统一流水线和配置文件
+├─── synthesis_cot/        # 思维链(CoT)合成
+├─── synthesis_eval/       # 为模型生成训练和评估数据
+├─── synthesis_nl/         # 自然语言问题(NL)合成
+├─── synthesis_sql/        # VectorSQL查询合成
+├─── tools/                # 数据集迁移、混合等辅助工具
+└─── vectorization/        # 数据库向量化
 ```
 
-### 为语义丰富的列生成embedding
-修改.env相关变量后，运行：
+## 快速开始
+
+通过运行统一流水线，您可以最便捷地完成整个数据合成过程。
+
+1.  **安装依赖**:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+2.  **配置环境**:
+    - 复制 `pipeline/config.yaml.example` 并重命名为 `pipeline/config.yaml`。
+    - 在 `config.yaml` 中填入您的 LLM API-Key、Base-URL 以及其他相关配置。
+
+3.  **配置流水线**:
+    - 打开 `pipeline/general_pipeline.py` 文件。
+    - 修改顶部的 `DATASET_BACKEND` 和 `DATASET_TO_LOAD` 变量，以选择您要使用的数据库类型和具体的数据集配置。
+    ```python
+    # 示例：选择 clickhouse 后端和名为 synthesis_data_deversity 的数据集
+    DATASET_BACKEND = "clickhouse"
+    DATASET_TO_LOAD = "synthesis_data_deversity"
+    ```
+
+4.  **运行流水线**:
+    ```bash
+    python pipeline/general_pipeline.py
+    ```
+    脚本将自动执行所有步骤，包括数据库向量化、VectorSQL生成、问题生成等。最终的合成数据集和向量数据库将保存在 `config.yaml` 中为该数据集配置的 `result_path` 路径下。
+
+## 分步执行
+
+如果您希望更精细地控制每一步，可以按照以下顺序手动执行各个子模块的脚本。
+
+### 第1步: 数据库向量化 (`vectorization`)
+
+此步骤为现有数据库添加向量信息。
+
+1.  **生成基础Schema**:
+    ```bash
+    python vectorization/generate_schema.py --db-dir <数据库目录> --output-file <输出的tables.json路径>
+    ```
+2.  **（可选）为Schema填充样本数据**:
+    ```bash
+    python vectorization/enhance_tables_json.py ...
+    ```
+3.  **寻找语义丰富的列**:
+    ```bash
+    python vectorization/find_semantic_rich_column.py ...
+    ```
+4.  **批量向量化**:
+    为语义列生成向量嵌入，并创建初始的向量数据库脚本。
+    ```bash
+    python vectorization/batch_vectorize_databases.py ...
+    ```
+5.  **生成最终向量数据库**:
+    使用上一步生成的脚本，构建最终的SQLite向量数据库。
+    ```bash
+    python vectorization/vector_database_generate.py ...
+    ```
+
+### 第2步: SQL查询合成 (`synthesis_sql`)
+
+1.  **生成VectorSQL合成提示**:
+    ```bash
+    python synthesis_sql/generate_sql_synthesis_prompts.py ...
+    ```
+2.  **调用LLM合成VectorSQL**:
+    ```bash
+    python synthesis_sql/synthesize_sql.py ...
+    ```
+3.  **后处理与筛选**:
+    验证VectorSQL的正确性，去除无效和重复的查询。
+    ```bash
+    python synthesis_sql/post_process_sqls.py ...
+    ```
+
+### 第3步: 自然语言问题合成 (`synthesis_nl`)
+
+1.  **生成问题合成提示**:
+    ```bash
+    python synthesis_nl/generate_question_synthesis_prompts.py ...
+    ```
+2.  **调用LLM合成问题**:
+    ```bash
+    python synthesis_nl/synthesize_question.py ...
+    ```
+3.  **后处理与筛选**:
+    通过语义一致性筛选，确保问题与VectorSQL查询高度匹配。
+    ```bash
+    python synthesis_nl/post_process_questions.py ...
+    ```
+
+### 第4步: 思维链合成 (`synthesis_cot`)
+
+1.  **生成CoT合成提示**:
+    ```bash
+    python synthesis_cot/generate_cot_synthesis_prompts.py ...
+    ```
+2.  **调用LLM合成CoT**:
+    ```bash
+    python synthesis_cot/synthesize_cot.py ...
+    ```
+3.  **后处理与筛选**:
+    通过执行验证和投票机制，选出最可靠的思维链。
+    ```bash
+    python synthesis_cot/post_process_cot.py ...
+    ```
+
+最终，您将得到一个包含“数据库、问题、VectorSQL、思维链”的完整数据集，可用于模型训练。
+
+## 依赖安装
+
+在运行任何脚本之前，请确保已安装所有必需的Python库。
+
 ```bash
-python batch_vectorize_databases.py
+pip install -r requirements.txt
 ```
-
-### 生成新的schema并且填入样例数据
-运行：
-```bash
-python generate_vector_schema.py
-#python enhance_tables_json.py #可以省略这一步，也就不用修改.env了
-```
-
-
-
-## 第二部分 合成vecsql--synthesis_sql目录
-### Step 1: SQL Query Generation
-
-Generate SQL queries by leveraging database schemas, database values, query complexity, and SQLite-supported functions.
-
-1. Execute `python3 generate_sql_synthesis_prompts.py` to create prompts for SQL query generation.
-2. Run `python3 synthesize_sql.py` to generate SQL queries using LLMs. 
-
-### Step 2: Post-Processing
-
-Refine the generated SQL queries to ensure quality and remove invalid or redundant queries:
-
-1. Run `python3 post_process_sqls.py` to:
-   - Discard non-SELECT queries.
-   - Remove queries with syntax errors or execution timeouts.
-   - Deduplicate queries based on their templates.
-
-2. The final synthetic SQL queries will be saved in `./results/synthetic_sqls.json`.
-
-
-
-## 第三部分 合成问题--synthesis_nl目录
-### Step 1: Question Generation
-Generate stylized natural language questions.
-1. Run `python3 generate_question_synthesis_prompts.py` to create prompts for question generation.
-2. Execute `python3 synthesize_question.py` to generate questions for the synthesized SQL queries. 
-
-### Step 2: Post-Processing
-1. Execute `python3 post_process_questions.py` to perform semantic consistency selection, ensuring the generated questions align closely with their corresponding SQL queries.
-2. The final synthetic `<question, SQL>` pairs will be saved to `./results/question_and_sql_pairs.json`.
-
-### Step 3: Add Candidate Sql
-```bash
-python synthesize_candidate.py --api_key <your api key>
-```
-1. Generate candidate sql.
-2. 2. The final synthetic file will be saved to `./results/candidate_sql.json`.
-
-
-
-## 第四部分 合成CoT--synthesis_cot目录
-This is the final step in our data synthesis framework, focused on generating step-by-step chain-of-thought (CoT) solutions for `<database, question, SQL query>` triplets.
-### Step 1: Chain-of-Thought Generation
-Create CoT solutions for each data sample.
-1. Run `python3 generate_cot_synthesis_prompts.py` to prepare prompts for CoT generation.
-2. Execute `python3 synthesize_cot.py` to generate CoT solutions for `<database, question, SQL query>` samples. (Note: For each prompt, we sample multiple CoT solutions with a temperature of `0.8`.)
-### Step 2: Post-Processing
-1. Run `python3 post_process_cot.py` to perform execution-based major voting, selecting the most reliable CoT solutions.
-2. Save the final synthetic `<database, question, SQL query, CoT solution>` samples to `./results/synthetic_text2sql_dataset.json`.
-
-
-
-## 第五部分 合成模型训练数据--synthesis_eval
-用于产生大模型能使用的训练数据，也可以用于模型推理。
-
-## database_synthesis目录
-此目录改编自omnisql项目，用来从网上的表格合成基本的数据库。同时，如果希望有更多语义丰富的列可以启用其中embedding_schema功能。

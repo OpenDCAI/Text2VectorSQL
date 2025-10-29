@@ -1,6 +1,6 @@
 # 执行引擎 (Execution Engine)
 
-执行引擎负责解析并执行"VectorSQL"查询. 它在用户通过扩展SQL方言表达的意图与各种数据库系统的原生功能之间架起了一座桥梁.
+执行引擎负责解析并执行"VectorSQL"查询. 它在用户通过VectorSQL表达的意图与各种数据库系统的原生功能之间架起了一座桥梁.
 
 ## 核心功能
 
@@ -51,10 +51,10 @@ database_connections:
     password: ""
 
 timeouts:
-  embedding_service: 30  # 秒
-  database_connection: 10 # 秒
+  embedding_service: 1  # 秒
+  database_connection: 1 # 秒
   sql_execution: 60     # 秒
-  total_execution: 120  # 秒
+  total_execution: 60  # 秒
 ```
 
 ## 用法
