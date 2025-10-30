@@ -16,8 +16,12 @@ def create_model_list():
         "OpenAI/text-embedding-ada-02",
         "Voyage-AI/voyage-large-2",
         "Voyage-AI/voyage-code-2",
-        "Google/text-embedding-004",
-        "Cohere/embed-v3",
+        "Voyage-AI/voyage-2",
+        "Google/text-embedding-004", 
+        "Google/text-embedding-gecko@003",
+        "Cohere/embed-english-v3.0",
+        "Cohere/embed-multilingual-v3.0",
+        
         # 开源顶级性能模型
         "BAAI/bge-large-en-v1.5",
         "NVIDIA/NV-Embed-v2",
@@ -25,15 +29,31 @@ def create_model_list():
         "intfloat/E5-Mistral-7B-Instruct",
         "Salesforce/SFR-Embedding-2_R",
         "nomic-ai/nomic-embed-text-v1.5",
+        "intfloat/e5-large-v2",
+        "Alibaba-NLP/gte-large",
+        "hkunlp/instructor-xl",
+        
         # 开源高效与经典模型
         "sentence-transformers/all-mpnet-base-v2",
-        "sentence-transformers/all-MiniLM-L6-v2", # 保留自身以防万一
+        "sentence-transformers/all-MiniLM-L6-v2",
+        "sentence-transformers/all-MiniLM-L12-v2", # 新增：L6 的稍大（12层）版本，性能更强
+        "sentence-transformers/msmarco-distilbert-base-v4", # 新增：专为语义搜索（MS MARCO）优化的经典模型
+        "princeton-nlp/sup-simcse-bert-base-uncased", # 新增：SimCSE，对比学习领域的经典之作
+        "intfloat/e5-base-v2", # 新增：E5 系列的 base 版本
         "BAAI/bge-base-en-v1.5",
+        "BAAI/bge-small-en-v1.5",
+        "Alibaba-NLP/gte-base",
+        "jina-ai/jina-embeddings-v2-base-en",
         "Grit-AI/g-gt-large",
+        
         # 开源多语言模型
         "BAAI/bge-m3",
         "intfloat/multilingual-e5-large",
+        "intfloat/multilingual-e5-base", # 新增：多语言 E5 的 base 版本
         "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", # 新增：高效的多语言 MiniLM
+        "sentence-transformers/distiluse-base-multilingual-cased-v1", # 新增：SBERT 经典的多语言 DistilUSE
+        "sentence-transformers/LaBSE",
         "google-bert/bert-base-multilingual-cased"
     ]
     

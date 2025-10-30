@@ -61,7 +61,7 @@ def save_to_cache(prompt, model, result):
     with open(cache_file, 'w', encoding='utf-8') as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
-def llm_inference_openai(model, prompts, api_key, api_url=None, max_tokens=10240, temperature=0.7, max_workers=64):
+def llm_inference_openai(model, prompts, api_key, api_url=None, max_tokens=10240, temperature=0.7, max_workers=128):
     """
     改进后的推理函数，带有缓存机制和多线程并行处理
     

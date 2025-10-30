@@ -8,6 +8,7 @@ import sys
 import signal
 import threading
 from typing import Any, Dict, List, Tuple
+from pathlib import Path
 from contextlib import contextmanager
 
 import psycopg2
@@ -21,6 +22,8 @@ import sqlite_lembed
 # logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("ExecutionEngine")
 
+# You need to ensure this path point to your sqlite_vec databases
+SQLITE_DATABASE_PATH = "/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data/vector_databases"
 
 class TimeoutError(Exception):
     """自定义超时异常"""
@@ -228,6 +231,14 @@ class ExecutionEngine:
                 else:
                     translated_sql = sql
 
+                prefix_path = SQLITE_DATABASE_PATH
+                db_identifier = f"{prefix_path}/{db_identifier}/{db_identifier}.sqlite"
+                new_db_id_PATH = Path(db_identifier)
+                if not new_db_id_PATH.is_file():
+                    print(f"文件不存在 (或者它是一个目录): {new_db_id_PATH}")
+                    return None
+                
+                    
                 # SQLite连接（通常很快，但添加超时保护）
                 with timeout_context(self.db_connection_timeout):
                     conn = sqlite3.connect(db_identifier)

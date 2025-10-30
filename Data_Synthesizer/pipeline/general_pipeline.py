@@ -12,8 +12,8 @@ import sys
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # 只需要修改这里，就可以加载不同的数据集配置！
-DATASET_BACKEND = "clickhouse" # "clickhouse"
-DATASET_TO_LOAD = "synthesis_data_deversity" # "synthesis_data" "wikipedia_multimodal" "synthesis_data_deversity"
+DATASET_BACKEND = "sqlite" # "clickhouse"
+DATASET_TO_LOAD = "synthesis_data" # "synthesis_data" "wikipedia_multimodal" "synthesis_data_deversity"
 # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
 
 # 获取当前文件的绝对路径
@@ -250,7 +250,7 @@ def main():
 
     # print("################################################")   
     # print("过滤可以成功运行的sql")
-    # post_process_sqls(config.paths.vector_db_root,config.paths.post_sql_output_path,config.paths.post_sql_llm_json_path,config.services.embed.get('api_url'),config.services.openai.get('embedding_model_name'),8,15)
+    # post_process_sqls(config.paths.vector_db_root,config.paths.post_sql_output_path,config.paths.post_sql_llm_json_path,config.services.embed.get('api_url'),config.services.openai.get('embedding_model_name'),config.parameters.num_cpus,config.parameters.sql_exec_timeout)
 
     # print("################################################")
     # print("生成合成question提示词")
@@ -262,12 +262,12 @@ def main():
 
     # print("################################################")
     # print("多数投票表决选取合适的question")
-    # post_process_questions(config.paths.post_process_questions_input_dataset_path,config.paths.post_process_questions_output_file,"http://127.0.0.1:8000/embed",config.services.openai.get('embedding_model_name'))
+    # post_process_questions(config.paths.post_process_questions_input_dataset_path,config.paths.post_process_questions_output_file,config.services.embed.get('api_url'),config.services.openai.get('embedding_model_name'))
 
     # print("################################################")
     # print("为每个问题生成多个sql候选")
     # synthesize_candidate(config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.num_candidates,config.parameters.max_workers,config.paths.synthesiaze_candidate_input_file,config.paths.synthesiaze_candidate_output_file)
-
+    # print("如果发现结果少了,可能是执行过快,这里要重新执行一遍")
 
 
 

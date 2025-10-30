@@ -157,7 +157,7 @@ def process_prompt(prompt, model, client):
     save_to_cache(cache_key, result)
     return result
 
-def llm_inference(model, prompts, api_key=None, api_url=None, max_workers=5):
+def llm_inference(model, prompts, api_key=None, api_url=None, max_workers=32):
     """
     多线程推理函数（仅修改max_tokens）
     """
@@ -196,7 +196,7 @@ if __name__ == '__main__':
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--api_key", type=str)
     parser.add_argument("--api_url", type=str)
-    parser.add_argument("--max_workers", type=int, default=32)
+    parser.add_argument("--max_workers", type=int, default=128)
     args = parser.parse_args()
     
     # 加载提示

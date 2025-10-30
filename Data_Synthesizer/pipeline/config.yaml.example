@@ -18,7 +18,7 @@ sqlite:
         embedding_model_name: "all-MiniLM-L6-v2"
 
       embed:
-        api_url: "http://127.0.0.1:8001/embed"
+        api_url: "http://127.0.0.1:8000/embed"
 
     # ------------------------------------------------------------------
     # 路径配置 - 在这里使用锚点 (&) 定义一个可复用的代码块
@@ -68,11 +68,11 @@ sqlite:
       post_process_cot_results_path: "sqlite/results/{dataset}/cot_synthesis.json"
       post_process_cot_db_dir: "sqlite/results/{dataset}/vector_databases"
       post_process_cot_output_dir: "sqlite/results/{dataset}"
-      dataset_json_path_input: "../pipeline/sqlite/results/{dataset}/candidate_sql.json"
-      tables_json_path_input: "../pipeline/sqlite/results/{dataset}/embedding_table_vector.json"
-      prompt_tamplate_path_infer_input: "../pipeline/sqlite/prompt_templates/sql_generate_prompt_template.txt"
-      output_path_input: "../pipeline/sqlite/results/{dataset}/input_llm.json"
-      database_note_prompt_path: "../pipeline/sqlite/prompt_templates/sqlite_vec_note_prompt.txt"
+      dataset_json_path_input: "./sqlite/results/{dataset}/candidate_sql.json"
+      tables_json_path_input: "./sqlite/results/{dataset}/embedding_table_vector.json"
+      prompt_tamplate_path_infer_input: "./sqlite/prompt_templates/sql_generate_prompt_template.txt"
+      output_path_input: "./sqlite/results/{dataset}/input_llm.json"
+      database_note_prompt_path: "./sqlite/prompt_templates/sqlite_vec_note_prompt.txt"
 
     parameters: &common_parameters
       dataset_backend: "sqlite"
@@ -151,21 +151,21 @@ sqlite:
       post_process_cot_results_path: "sqlite/results/{dataset}/cot_synthesis.json"
       post_process_cot_db_dir: "sqlite/results/{dataset}/vector_databases"
       post_process_cot_output_dir: "sqlite/results/{dataset}"
-      dataset_json_path_input: "../pipeline/sqlite/results/{dataset}/synthetic_text2sql_dataset.json"
-      tables_json_path_input: "../pipeline/sqlite/results/{dataset}/embedding_table_vector.json"
-      prompt_tamplate_path_infer_input: "../pipeline/sqlite/prompt_templates/sql_generate_prompt_template.txt"
-      output_path_input: "../pipeline/sqlite/results/{dataset}/input_llm.json"
-      database_note_prompt_path: "../pipeline/sqlite/prompt_templates/sqlite_vec_note_prompt.txt"
-      # output_llm_train_path: "../pipeline/sqlite/results/{dataset}/output_llm.json"
+      dataset_json_path_input: "./sqlite/results/{dataset}/synthetic_text2sql_dataset.json"
+      tables_json_path_input: "./sqlite/results/{dataset}/embedding_table_vector.json"
+      prompt_tamplate_path_infer_input: "./sqlite/prompt_templates/sql_generate_prompt_template.txt"
+      output_path_input: "./sqlite/results/{dataset}/input_llm.json"
+      database_note_prompt_path: "./sqlite/prompt_templates/sqlite_vec_note_prompt.txt"
+      # output_llm_train_path: "./sqlite/results/{dataset}/output_llm.json"
 
     parameters:
       dataset_backend: "sqlite"
-      max_workers: 64
+      max_workers: 256
       no_parallel_find_semantic_rich: false
-      num_cpus: 10
-      sql_exec_timeout: 60
+      num_cpus: 8
+      sql_exec_timeout: 10
       num_candidates: 5
-      sql_number: 2 #这个参数特别重要！控制最终文件的大小。
+      sql_number: 3 #这个参数特别重要！控制最终文件的大小。
       # 它在最开始控制对每个向量列生成多少条对应的sql语句（只是在最开始，由于后续会筛选掉不合格的sql，所以最终结果的数目比这个参数值乘以语义丰富的列数要小很多）
 
   # ====================================================================
@@ -229,7 +229,7 @@ sqlite:
   # ====================================================================
   wikipedia_multimodal:
     # services 和 parameters 可以是 bird 数据集特有的
-    services:
+    services: &wiki_services
       vllm:
         api_url: "http://127.0.0.1:8000/v1"
         model_name: "/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct"
@@ -295,11 +295,11 @@ sqlite:
       post_process_cot_results_path: "sqlite/results/{dataset}/cot_synthesis.json"
       post_process_cot_db_dir: "sqlite/results/{dataset}/vector_databases"
       post_process_cot_output_dir: "sqlite/results/{dataset}"   
-      dataset_json_path_input: "../pipeline/sqlite/results/{dataset}/candidate_sql.json"
-      tables_json_path_input: "../pipeline/sqlite/results/{dataset}/embedding_table_vector.json"
-      prompt_tamplate_path_infer_input: "../pipeline/sqlite/prompt_templates/sql_generate_prompt_template.txt"
-      output_path_input: "../pipeline/sqlite/results/{dataset}/input_llm.json"
-      database_note_prompt_path: "../pipeline/sqlite/prompt_templates/sqlite_vec_note_prompt.txt"
+      dataset_json_path_input: "./sqlite/results/{dataset}/candidate_sql.json"
+      tables_json_path_input: "./sqlite/results/{dataset}/embedding_table_vector.json"
+      prompt_tamplate_path_infer_input: "./sqlite/prompt_templates/sql_generate_prompt_template.txt"
+      output_path_input: "./sqlite/results/{dataset}/input_llm.json"
+      database_note_prompt_path: "./sqlite/prompt_templates/sqlite_vec_note_prompt.txt"
 
     parameters:
       dataset_backend: "sqlite"
@@ -309,3 +309,130 @@ sqlite:
       sql_exec_timeout: 60
       num_candidates: 5
       sql_number: 70 #这个参数特别重要！控制最终文件的大小。
+      
+
+clickhouse:
+  arxiv:
+    services: *common_services
+    
+    paths: &converted_paths_clickhouse # <-- (2) 使用 *common_paths 引用锚点
+      dataset_json_path_input: "./clickhouse/results/{dataset}/candidate_sql.json"
+      tables_json_path_input: "./clickhouse/results/{dataset}/embedding_table_vector.json"
+      prompt_tamplate_path_infer_input: "./sqlite/prompt_templates/sql_generate_prompt_template.txt"
+      output_path_input: "./clickhouse/results/{dataset}/input_llm.json"
+      database_note_prompt_path: "./clickhouse/prompt_templates/clickhouse_vec_note_prompt.txt"
+
+    parameters: &clickhouse_parameters
+      dataset_backend: "clickhouse"
+      max_workers: 32
+      no_parallel_find_semantic_rich: false
+      num_cpus: 10
+      sql_exec_timeout: 60
+
+  bird:
+    services: *common_services
+    
+    paths: *converted_paths_clickhouse 
+
+    parameters: *clickhouse_parameters
+
+  wikipedia_multimodal:
+    services: *wiki_services
+    
+    paths: *converted_paths_clickhouse 
+
+    parameters: *clickhouse_parameters
+  
+  spider:
+    services: *common_services
+    
+    paths: *converted_paths_clickhouse 
+
+    parameters: *clickhouse_parameters
+
+  synthesis_data:
+    services: *common_services
+    
+    paths: 
+      gene_cot_prompts_dataset_json_path: "clickhouse/results/{dataset}/candidate_sql.json"
+      gene_cot_prompts_tables_json_path: "clickhouse/results/{dataset}/embedding_table_vector.json"
+      gene_cot_prompts_prompt_tamplate_path: "sqlite/prompt_templates/cot_synthesis_prompt_template.txt"
+      gene_cot_prompts_output_prompt_path: "clickhouse/prompts/{dataset}/cot_synthesis_prompts.json"
+      synthesize_cot_output_file: "clickhouse/results/{dataset}/cot_synthesis.json"
+      cache_file_path_cot: "clickhouse/cache/{dataset}/disk_cache/disk_cache_cot"
+      post_process_cot_results_path: "clickhouse/results/{dataset}/cot_synthesis.json"
+      post_process_cot_db_dir: "clickhouse/results/{dataset}/vector_databases"
+      post_process_cot_output_dir: "clickhouse/results/{dataset}"
+      dataset_json_path_input: "./clickhouse/results/{dataset}/synthetic_text2sql_dataset.json"
+      tables_json_path_input: "./clickhouse/results/{dataset}/embedding_table_vector.json"
+      prompt_tamplate_path_infer_input: "./sqlite/prompt_templates/sql_generate_prompt_template.txt"
+      output_path_input: "./clickhouse/results/{dataset}/input_llm.json"
+      database_note_prompt_path: "./clickhouse/prompt_templates/clickhouse_vec_note_prompt.txt"
+
+    parameters: 
+      dataset_backend: "clickhouse"
+      max_workers: 32
+      no_parallel_find_semantic_rich: false
+      num_cpus: 10
+      sql_exec_timeout: 60
+
+postgresql:
+  arxiv:
+    services: *common_services
+    
+    paths: &converted_paths_postgresql # <-- (2) 使用 *common_paths 引用锚点
+      dataset_json_path_input: "./postgresql/results/{dataset}/candidate_sql.json"
+      tables_json_path_input: "./postgresql/results/{dataset}/embedding_table_vector.json"
+      prompt_tamplate_path_infer_input: "./sqlite/prompt_templates/sql_generate_prompt_template.txt"
+      output_path_input: "./postgresql/results/{dataset}/input_llm.json"
+      database_note_prompt_path: "./postgresql/prompt_templates/postgresql_vec_note_prompt.txt"
+
+    parameters: &postgresql_parameters
+      dataset_backend: "postgresql"
+      max_workers: 32
+      no_parallel_find_semantic_rich: false
+      num_cpus: 10
+      sql_exec_timeout: 60
+
+  bird:
+    services: *common_services
+    
+    paths: *converted_paths_postgresql 
+
+    parameters: *postgresql_parameters
+
+  wikipedia_multimodal:
+    services: *wiki_services
+    
+    paths: *converted_paths_postgresql 
+
+    parameters: *postgresql_parameters
+  
+  spider:
+    services: *common_services
+    
+    paths: *converted_paths_postgresql 
+
+    parameters: *postgresql_parameters
+
+  synthesis_data:
+    services: *common_services
+    
+    paths: 
+      gene_cot_prompts_dataset_json_path: "postgresql/results/{dataset}/candidate_sql.json"
+      gene_cot_prompts_tables_json_path: "postgresql/results/{dataset}/embedding_table_vector.json"
+      gene_cot_prompts_prompt_tamplate_path: "sqlite/prompt_templates/cot_synthesis_prompt_template.txt"
+      gene_cot_prompts_output_prompt_path: "postgresql/prompts/{dataset}/cot_synthesis_prompts.json"
+      synthesize_cot_output_file: "postgresql/results/{dataset}/cot_synthesis.json"
+      cache_file_path_cot: "postgresql/cache/{dataset}/disk_cache/disk_cache_cot"
+      post_process_cot_results_path: "postgresql/results/{dataset}/cot_synthesis.json"
+      post_process_cot_db_dir: "postgresql/results/{dataset}/vector_databases"
+      post_process_cot_output_dir: "postgresql/results/{dataset}"
+      dataset_json_path_input: "./postgresql/results/{dataset}/synthetic_text2sql_dataset.json"
+      tables_json_path_input: "./postgresql/results/{dataset}/embedding_table_vector.json"
+      prompt_tamplate_path_infer_input: "./sqlite/prompt_templates/sql_generate_prompt_template.txt"
+      output_path_input: "./postgresql/results/{dataset}/input_llm.json"
+      database_note_prompt_path: "./postgresql/prompt_templates/postgresql_vec_note_prompt.txt"
+
+    parameters: *postgresql_parameters
+

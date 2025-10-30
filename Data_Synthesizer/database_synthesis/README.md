@@ -26,3 +26,4 @@ Build SQLite databases based on the enhanced database schemas.
 
 1. Run `python3 build_sqlite_databases.py` to construct SQLite databases, which are stored in the `synthesis_data` folder.
 2. (Optional) Run `python3 generate_tables_json.py` to create the `tables.json` file, containing detailed information about the synthetic databases, aligning with previous text-to-SQL datasets.
+3. Run `cp -r synthesis_data ../pipeline/sqlite/train/` to move database to right place.

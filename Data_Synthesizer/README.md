@@ -40,6 +40,7 @@ Data_Synthesizer/
 2.  **配置环境**:
     - 复制 `pipeline/config.yaml.example` 并重命名为 `pipeline/config.yaml`。
     - 在 `config.yaml` 中填入您的 LLM API-Key、Base-URL 以及其他相关配置。
+    - 在服务器中启动embedding服务，参考文件 `../../Embedding_Service/README.md`
 
 3.  **配置流水线**:
     - 打开 `pipeline/general_pipeline.py` 文件。
