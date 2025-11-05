@@ -135,8 +135,8 @@ def process_large_json(input_path, output_path):
 
 if __name__ == "__main__":
     # 直接在代码中定义文件路径
-    input_file_path = "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/tools/results/mixed_datasets/input_llm_4_1.json"
-    output_file_path = "/mnt/b_public/data/ydw/Text2VectorSQL/LLaMA-Factory/data/input_llm_4_1.json"
+    input_file_path = "/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/tools/results/collected_input_llm.json"
+    output_file_path = "/mnt/DataFlow/ydw/Text2VectorSQL/LLaMA-Factory/data/myscale_synthesis_data.json"
     
     # 确保文件存在，给出更友好的提示
     if not os.path.exists(input_file_path):

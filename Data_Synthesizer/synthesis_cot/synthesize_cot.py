@@ -127,6 +127,16 @@ def llm_inference(dataset, api_key, base_url, llm_model_name, max_workers, cache
                     "code block like this: ```sql\n[YOUR SQL QUERY HERE]\n```**. "
                     "Do not include any explanation after the final SQL code block."
                 )
+            elif db_type == "myscale":
+                system_prompt = (
+                    "You are an expert MyScale data analyst working with a database that has built-in vector search capabilities. "
+                    "Your task is to generate a step-by-step thinking process (Chain-of-Thought) to arrive at a SQL query for a given question and database schema. "
+                    "For vector similarity searches, you MUST use a `WITH` clause for the reference vector and the `distance` function (e.g., `distance(vector_column, ref_vec)`). The query syntax is: "
+                    "`WITH lembed('embed_model_name', 'search_text') AS ref_vec SELECT ..., distance(vector_column, ref_vec) AS distance FROM table_name ORDER BY distance LIMIT N`. "
+                    "**Crucially, you MUST conclude your response with the final, complete SQL query enclosed in a markdown "
+                    "code block like this: ```sql\n[YOUR SQL QUERY HERE]\n```**. "
+                    "Do not include any explanation after the final SQL code block."
+                )
 
             try:
                 chat_completion = client.chat.completions.create(

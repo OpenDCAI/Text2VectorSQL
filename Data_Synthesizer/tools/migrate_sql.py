@@ -1351,6 +1351,25 @@ class SQLiteToPostgreSQLConverter:
         final_sql = final_query if final_query.endswith(';') else final_query + ";"
         return self._quote_all_identifiers(final_sql), integration_level
 
+class SQLiteToMyScaleConverter(SQLiteToClickHouseConverter):
+    """
+    将 SQLite 转换为 MyScale SQL。
+    由于 MyScale 基于 ClickHouse，我们可以直接继承 ClickHouse 转换器。
+    
+    注意：如果 MyScale 有特殊的向量索引语法 (例如 CREATE VECTOR INDEX ...)，
+    你可能需要重写(override) 'convert' 方法来自定义 CREATE TABLE 语句的翻译。
+    
+    但对于 SELECT/INSERT/UPDATE/DELETE 查询，它应该与 ClickHouse 相同。
+    """
+    def __init__(self, sql):
+        # 直接调用父类 (ClickHouse) 的构造函数
+        super().__init__(sql)
+
+    def convert(self):
+        # 直接调用父类 (ClickHouse) 的转换方法
+        # 这将返回 (converted_sql, integration_level)
+        return super().convert()
+    
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
     # --- 新增功能：集成执行引擎 ---

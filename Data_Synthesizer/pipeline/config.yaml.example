@@ -371,7 +371,72 @@ clickhouse:
 
     parameters: 
       dataset_backend: "clickhouse"
-      max_workers: 32
+      max_workers: 256
+      no_parallel_find_semantic_rich: false
+      num_cpus: 10
+      sql_exec_timeout: 60
+
+myscale:
+  arxiv:
+    services: *common_services
+    
+    paths: &converted_paths_myscale # <-- (2) 使用 *common_paths 引用锚点
+      dataset_json_path_input: "./myscale/results/{dataset}/candidate_sql.json"
+      tables_json_path_input: "./myscale/results/{dataset}/embedding_table_vector.json"
+      prompt_tamplate_path_infer_input: "./sqlite/prompt_templates/sql_generate_prompt_template.txt"
+      output_path_input: "./myscale/results/{dataset}/input_llm.json"
+      database_note_prompt_path: "./myscale/prompt_templates/myscale_vec_note_prompt.txt"
+
+    parameters: &myscale_parameters
+      dataset_backend: "myscale"
+      max_workers: 256
+      no_parallel_find_semantic_rich: false
+      num_cpus: 10
+      sql_exec_timeout: 60
+
+  bird:
+    services: *common_services
+    
+    paths: *converted_paths_myscale
+
+    parameters: *myscale_parameters
+
+  wikipedia_multimodal:
+    services: *wiki_services
+    
+    paths: *converted_paths_myscale 
+
+    parameters: *myscale_parameters
+  
+  spider:
+    services: *common_services
+    
+    paths: *converted_paths_myscale
+
+    parameters: *myscale_parameters
+
+  synthesis_data:
+    services: *common_services
+    
+    paths: 
+      gene_cot_prompts_dataset_json_path: "myscale/results/{dataset}/candidate_sql.json"
+      gene_cot_prompts_tables_json_path: "myscale/results/{dataset}/embedding_table_vector.json"
+      gene_cot_prompts_prompt_tamplate_path: "sqlite/prompt_templates/cot_synthesis_prompt_template.txt"
+      gene_cot_prompts_output_prompt_path: "myscale/prompts/{dataset}/cot_synthesis_prompts.json"
+      synthesize_cot_output_file: "myscale/results/{dataset}/cot_synthesis.json"
+      cache_file_path_cot: "myscale/cache/{dataset}/disk_cache/disk_cache_cot"
+      post_process_cot_results_path: "myscale/results/{dataset}/cot_synthesis.json"
+      post_process_cot_db_dir: "myscale/results/{dataset}/vector_databases"
+      post_process_cot_output_dir: "myscale/results/{dataset}"
+      dataset_json_path_input: "./myscale/results/{dataset}/synthetic_text2sql_dataset.json"
+      tables_json_path_input: "./myscale/results/{dataset}/embedding_table_vector.json"
+      prompt_tamplate_path_infer_input: "./sqlite/prompt_templates/sql_generate_prompt_template.txt"
+      output_path_input: "./myscale/results/{dataset}/input_llm.json"
+      database_note_prompt_path: "./myscale/prompt_templates/myscale_vec_note_prompt.txt"
+
+    parameters: 
+      dataset_backend: "myscale"
+      max_workers: 256
       no_parallel_find_semantic_rich: false
       num_cpus: 10
       sql_exec_timeout: 60
@@ -389,7 +454,7 @@ postgresql:
 
     parameters: &postgresql_parameters
       dataset_backend: "postgresql"
-      max_workers: 32
+      max_workers: 256
       no_parallel_find_semantic_rich: false
       num_cpus: 10
       sql_exec_timeout: 60

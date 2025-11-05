@@ -23,14 +23,24 @@ database_connections:
     user: "default"
     password: ""               # 您的ClickHouse密码
 
-  # SQLite不需要配置模板，因为它的连接就是文件路径本身
+  # --- 新增 MyScale 配置块 ---
+  myscale:
+    # MyScale 使用与 ClickHouse 相同的 HTTP 协议 (via clickhouse_connect)
+    # 你可以替换成你的公网IP (例如 "8.140.37.123") 或保持 "localhost"
+    host: "8.140.37.123"
+    port: 8123                 # HTTP 协议端口
+    user: "default"
+    password: ""               # MyScale 的密码 (如果设置了)
+  # --- 新增结束 ---
 
-  # 超时配置（单位：秒）
+# SQLite不需要配置模板，因为它的连接就是文件路径本身
+
+# 超时配置（单位：秒）
 timeouts:
-  embedding_service: 1      # Embedding服务调用超时
-  database_connection: 1    # 数据库连接超时
+  embedding_service: 10      # Embedding服务调用超时 (1秒太短了, 建议改长一点)
+  database_connection: 10    # 数据库连接超时 (1秒太短了, 建议改长一点)
   sql_execution: 60          # SQL执行超时
-  total_execution: 60       # 总执行超时
+  total_execution: 120       # 总执行超时 (改成了120秒)
 
 # 日志配置
 logging:

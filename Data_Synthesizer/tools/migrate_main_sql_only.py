@@ -6,15 +6,17 @@ import re
 import sys
 from collections import defaultdict
 import psycopg2
-from clickhouse_driver import Client
+# [--- 修改 ---] 导入两个不同的 ClickHouse 客户端
+from clickhouse_driver import Client as Client_Native  # 用于 ClickHouse (Port 9000)
+import clickhouse_connect  # 用于 MyScale (Port 8123)
 
-# Assuming the project structure is correct for imports
-# You may need to adjust this path if the script is moved
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# [--- 修改 ---] 尝试导入 MyScale 转换器
 try:
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
-    from migrate_sql import SQLiteToPostgreSQLConverter, SQLiteToClickHouseConverter
+    from migrate_sql import SQLiteToPostgreSQLConverter, SQLiteToClickHouseConverter, SQLiteToMyScaleConverter
     from Execution_Engine.execution_engine import ExecutionEngine, TimeoutError
 except ImportError:
     print("Could not import necessary modules. Please ensure the project structure is correct.")
@@ -26,6 +28,10 @@ except ImportError:
     class SQLiteToClickHouseConverter:
         def __init__(self, sql): self.sql = sql
         def convert(self): return f"-- CH Converted: {self.sql}", "level_2"
+    # [--- 新增 ---] 为 MyScale 添加一个虚拟类
+    class SQLiteToMyScaleConverter:
+        def __init__(self, sql): self.sql = sql
+        def convert(self): return f"-- MyScale Converted: {self.sql}", "level_2"
     class ExecutionEngine:
         def __init__(self, config_path): pass
         def execute(self, sql, db_type, db_identifier): return {'status': 'success'}
@@ -33,29 +39,25 @@ except ImportError:
 
 # --- Configuration Area ---
 # Input/Output File Configuration
-INPUT_SQL_FILE_PATH = '/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data_deversity/candidate_sql.json'
+INPUT_SQL_FILE_PATH = '/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data/candidate_sql.json'
 
 # Generate output paths dynamically from the input path
 base_path, _ = os.path.splitext(INPUT_SQL_FILE_PATH)
 OUTPUT_LITE_SUCCESS_PATH = f"{base_path}_lite.json"
 OUTPUT_PG_SUCCESS_PATH = f"{base_path}_pg.json"
 OUTPUT_CH_SUCCESS_PATH = f"{base_path}_ch.json"
+# [--- 新增 ---] MyScale 输出路径
+OUTPUT_MS_SUCCESS_PATH = f"{base_path}_ms.json"
 
 # Execution Engine Configuration File
-ENGINE_CONFIG_PATH = 'Execution_Engine/engine_config.yaml'
+ENGINE_CONFIG_PATH = os.path.join(project_root, 'Execution_Engine', 'engine_config.yaml')
 # --- Configuration Area End ---
 
 def get_database_schema(db_type, conn_args, db_name):
     """
     Connects to a database and retrieves its schema.
-
-    Args:
-        db_type (str): The type of the database ('postgresql' or 'clickhouse').
-        conn_args (argparse.Namespace): Connection arguments.
-        db_name (str): The name of the database to inspect.
-
-    Returns:
-        str: A string representing the database schema, or an empty string on failure.
+    
+    [--- 修改 ---] 此函数现在支持 'myscale'
     """
     schema_str = ""
     tables = defaultdict(list)
@@ -79,12 +81,30 @@ def get_database_schema(db_type, conn_args, db_name):
             conn.close()
 
         elif db_type == 'clickhouse':
-            client = Client(host=conn_args.host, port=conn_args.port, user=conn_args.user, password=conn_args.password, database=db_name)
+            # [--- 修改 ---] 使用 Native 客户端 (Port 9000)
+            client = Client_Native(host=conn_args.host, port=conn_args.port, user=conn_args.user, password=conn_args.password, database=db_name)
             query = f"SELECT table, name, type FROM system.columns WHERE database = '{db_name}' ORDER BY table, position;"
             result = client.execute(query)
             for row in result:
                 table, column, dtype = row
                 tables[table].append(f"`{column}` {dtype}")
+
+        # [--- 新增 ---] MyScale 的 schema 获取逻辑
+        elif db_type == 'myscale':
+            # MyScale 使用 HTTP 客户端 (Port 8123)
+            client = clickhouse_connect.get_client(
+                host=conn_args.host,
+                port=conn_args.port,
+                user=conn_args.user,
+                password=conn_args.password,
+                database=db_name
+            )
+            query = f"SELECT table, name, type FROM system.columns WHERE database = '{db_name}' ORDER BY table, position;"
+            result = client.query(query)
+            for row in result.result_rows:
+                table, column, dtype = row
+                tables[table].append(f"`{column}` {dtype}")
+            client.close()
 
         # Format the schema string
         for table_name, columns in tables.items():
@@ -98,10 +118,9 @@ def get_database_schema(db_type, conn_args, db_name):
         return ""
 
 
-def get_common_databases(pg_args, ch_args):
+def get_pg_ch_common_databases(pg_args, ch_args):
     """
-    Connects to PostgreSQL and ClickHouse to find and return a list of
-    databases that exist in both systems.
+    [--- 修改 ---] 此函数现在只查找 PG 和 CH 的交集
     """
     pg_dbs = set()
     ch_dbs = set()
@@ -125,7 +144,8 @@ def get_common_databases(pg_args, ch_args):
 
     # Retrieve databases from ClickHouse
     try:
-        client_ch = Client(host=ch_args.host, port=ch_args.port, user=ch_args.user, password=ch_args.password)
+        # [--- 修改 ---] 使用 Native 客户端 (Port 9000)
+        client_ch = Client_Native(host=ch_args.host, port=ch_args.port, user=ch_args.user, password=ch_args.password)
         ch_system_dbs = {'system', 'default', 'INFORMATION_SCHEMA', 'information_schema'}
         result = client_ch.execute('SHOW DATABASES')
         for row in result:
@@ -139,20 +159,37 @@ def get_common_databases(pg_args, ch_args):
 
     return list(pg_dbs.intersection(ch_dbs))
 
+# [--- 新增 ---] 用于获取 MyScale 数据库列表的函数
+def get_myscale_databases(ms_args):
+    """
+    Connects to MyScale to find and return a list of databases.
+    """
+    ms_dbs = set()
+    try:
+        # MyScale 使用 HTTP 客户端 (Port 8123)
+        client_ms = clickhouse_connect.get_client(
+            host=ms_args.host,
+            port=ms_args.port,
+            user=ms_args.user,
+            password=ms_args.password
+        )
+        ms_system_dbs = {'system', 'default', 'INFORMATION_SCHEMA', 'information_schema'}
+        result = client_ms.query('SHOW DATABASES')
+        for row in result.result_rows:
+            db_name = row[0]
+            if db_name not in ms_system_dbs:
+                ms_dbs.add(db_name)
+        client_ms.close()
+        logging.info("Successfully retrieved database list from MyScale.")
+    except Exception as e:
+        logging.error("Failed to connect to MyScale or retrieve database list: %s", e)
+        return []
+    return list(ms_dbs)
+
+
 def process_item_for_backend(item, db_id, target_db, engine, schema, ConverterClass):
     """
-    Converts and validates an entire item (main SQL and candidates) for a specific backend.
-    
-    Args:
-        item (dict): The original query item from the input file.
-        db_id (str): The database identifier.
-        target_db (str): The target database type ('postgresql' or 'clickhouse').
-        engine (ExecutionEngine): The execution engine instance.
-        schema (str): The schema for the target database.
-        ConverterClass: The converter class to use for migration.
-
-    Returns:
-        dict or None: The processed item if successful, otherwise None.
+    (此函数无需修改，它已经是通用的)
     """
     logging.info(f"  -> [{target_db.upper()}] Processing item...")
     processed_item = item.copy()
@@ -166,6 +203,10 @@ def process_item_for_backend(item, db_id, target_db, engine, schema, ConverterCl
     try:
         converter = ConverterClass(original_sql)
         converted_sql, integration_level = converter.convert()
+        
+        # [--- 关键 ---] 
+        # 你的 ExecutionEngine 已经支持 'myscale'
+        # 所以这里我们什么都不用改
         result = engine.execute(sql=converted_sql, db_type=target_db, db_identifier=db_id)
 
         if result.get('status') == 'success':
@@ -206,20 +247,34 @@ def main():
     """
     Main execution function.
     """
-    logging.info("--- 步骤 1: 识别 PostgreSQL 和 ClickHouse 中的通用数据库 ---")
+    logging.info("--- 步骤 1: 识别所有后端中的数据库 ---")
+    # [--- 修改 ---] PG 和 CH 使用本地的、用于验证的数据库
     pg_args = argparse.Namespace(host='localhost', port=5432, user='postgres', password='postgres')
-    ch_args = argparse.Namespace(host='localhost', port=9000, user='default', password='')
-    common_dbs = get_common_databases(pg_args, ch_args)
+    ch_args = argparse.Namespace(host='localhost', port=9000, user='default', password='') # Port 9000 (Native)
+    
+    # [--- 新增 ---] MyScale 使用你的公网IP (Port 8123 (HTTP))
+    ms_args = argparse.Namespace(host='8.140.37.123', port=8123, user='default', password='') 
+    
+    common_dbs_pg_ch = get_pg_ch_common_databases(pg_args, ch_args)
+    common_dbs_ms = get_myscale_databases(ms_args)
+    
+    # [--- 修改 ---] 
+    # 我们将处理存在于 (PG 和 CH) 或 (MyScale) 中的任何数据库
+    all_available_dbs = set(common_dbs_pg_ch).union(set(common_dbs_ms))
 
-    if not common_dbs:
-        logging.warning("在 PostgreSQL 和 ClickHouse 之间没有找到通用数据库。无法继续处理查询。")
+    if not all_available_dbs:
+        logging.warning("在所有后端中都没有找到可用的数据库。无法继续处理查询。")
         return
 
-    logging.info("✔ 通用数据库识别完成: %s", common_dbs)
+    logging.info("✔ PG/CH 通用数据库: %s", common_dbs_pg_ch)
+    logging.info("✔ MyScale 可用数据库: %s", common_dbs_ms)
     logging.info("--- 步骤 1 完成 ---")
     logging.info("\n--- 步骤 2: 开始处理、转换和执行SQL查询 ---")
 
     try:
+        # [--- 关键 ---] 
+        # 你的 ExecutionEngine 已经从 engine_config.yaml 中
+        # 加载了 PG, CH 和 MyScale 的连接配置。
         engine = ExecutionEngine(config_path=ENGINE_CONFIG_PATH)
     except Exception as e:
         logging.error(f"无法初始化 ExecutionEngine: {e}")
@@ -235,9 +290,11 @@ def main():
     lite_queries = []
     pg_successful_queries = []
     ch_successful_queries = []
+    ms_successful_queries = [] # [--- 新增 ---]
     
     pg_schema_cache = {}
     ch_schema_cache = {}
+    ms_schema_cache = {} # [--- 新增 ---]
 
     total_queries = len(all_queries)
     logging.info("共加载 %s 条查询。", total_queries)
@@ -250,36 +307,58 @@ def main():
             logging.warning("记录缺少 'sql' 或 'db_id'，跳过。")
             continue
 
-        if db_id not in common_dbs:
-            logging.warning("数据库 '%s' 未在两个后端都存在，跳过此查询。", db_id)
+        if db_id not in all_available_dbs:
+            logging.warning("数据库 '%s' 在任何后端都不可用，跳过此查询。", db_id)
             continue
             
-        # Fetch and cache schemas if not already present
-        if db_id not in pg_schema_cache:
-            logging.info(f"  -> 正在为 '{db_id}' 获取 PostgreSQL schema...")
-            pg_schema_cache[db_id] = get_database_schema('postgresql', pg_args, db_id)
-        if db_id not in ch_schema_cache:
-            logging.info(f"  -> 正在为 '{db_id}' 获取 ClickHouse schema...")
-            ch_schema_cache[db_id] = get_database_schema('clickhouse', ch_args, db_id)
-        
-        # Process for PostgreSQL and ClickHouse first to get their integration levels
-        pg_item = process_item_for_backend(
-            item, db_id, 'postgresql', engine, pg_schema_cache.get(db_id, ""), SQLiteToPostgreSQLConverter
-        )
-        ch_item = process_item_for_backend(
-            item, db_id, 'clickhouse', engine, ch_schema_cache.get(db_id, ""), SQLiteToClickHouseConverter
-        )
+        pg_item = None
+        ch_item = None
+        ms_item = None
+            
+        # [--- 修改 ---] 仅当 db_id 存在于 PG/CH 对中时才处理它们
+        if db_id in common_dbs_pg_ch:
+            # Fetch and cache PG schema
+            if db_id not in pg_schema_cache:
+                logging.info(f"  -> 正在为 '{db_id}' 获取 PostgreSQL schema...")
+                pg_schema_cache[db_id] = get_database_schema('postgresql', pg_args, db_id)
+            # Fetch and cache CH schema
+            if db_id not in ch_schema_cache:
+                logging.info(f"  -> 正在为 '{db_id}' 获取 ClickHouse schema...")
+                ch_schema_cache[db_id] = get_database_schema('clickhouse', ch_args, db_id)
+            
+            # Process for PostgreSQL
+            pg_item = process_item_for_backend(
+                item, db_id, 'postgresql', engine, pg_schema_cache.get(db_id, ""), SQLiteToPostgreSQLConverter
+            )
+            # Process for ClickHouse
+            ch_item = process_item_for_backend(
+                item, db_id, 'clickhouse', engine, ch_schema_cache.get(db_id, ""), SQLiteToClickHouseConverter
+            )
 
-        if pg_item:
-            pg_successful_queries.append(pg_item)
-        if ch_item:
-            ch_successful_queries.append(ch_item)
+            if pg_item:
+                pg_successful_queries.append(pg_item)
+            if ch_item:
+                ch_successful_queries.append(ch_item)
 
-        # **NEW**: Prepare the SQLite item with the averaged integration_level
+        # [--- 新增 ---] 仅当 db_id 存在于 MyScale 中时才处理它
+        if db_id in common_dbs_ms:
+            # Fetch and cache MyScale schema
+            if db_id not in ms_schema_cache:
+                logging.info(f"  -> 正在为 '{db_id}' 获取 MyScale schema...")
+                ms_schema_cache[db_id] = get_database_schema('myscale', ms_args, db_id)
+            
+            # Process for MyScale
+            ms_item = process_item_for_backend(
+                item, db_id, 'myscale', engine, ms_schema_cache.get(db_id, ""), SQLiteToMyScaleConverter
+            )
+            
+            if ms_item:
+                ms_successful_queries.append(ms_item)
+
+        # [--- 修改 ---] Lite item 逻辑保持不变
         lite_item = item.copy()
         lite_item['db_type'] = 'sqlite'
         
-        # Calculate average integration level only if both migrations were successful
         if pg_item and ch_item:
             try:
                 pg_level_num = int(pg_item.get('integration_level', '0'))
@@ -299,7 +378,8 @@ def main():
     output_files = {
         OUTPUT_LITE_SUCCESS_PATH: (lite_queries, "Lite"),
         OUTPUT_PG_SUCCESS_PATH: (pg_successful_queries, "PG"),
-        OUTPUT_CH_SUCCESS_PATH: (ch_successful_queries, "CH")
+        OUTPUT_CH_SUCCESS_PATH: (ch_successful_queries, "CH"),
+        OUTPUT_MS_SUCCESS_PATH: (ms_successful_queries, "MyScale") # [--- 新Z---]
     }
 
     for path, (data, label) in output_files.items():
@@ -316,5 +396,6 @@ def main():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.ERROR, format='[%(levelname)s] %(message)s')
+    # [--- 修改 ---] 将日志级别改为 INFO，以便看到更多过程信息
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     main()

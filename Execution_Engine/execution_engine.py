@@ -162,7 +162,7 @@ class ExecutionEngine:
             
             if db_type == 'postgresql':
                 return f"'{str(vector)}'"
-            elif db_type == 'clickhouse':
+            elif db_type in ('clickhouse', 'myscale'):
                 return str(vector)
             else:
                 # 其他数据库方言可以在此添加
@@ -284,6 +284,26 @@ class ExecutionEngine:
                         "data": result.result_rows,
                         "row_count": len(result.result_rows)
                     }
+                # --- MyScale 执行块 ---
+                elif db_type == 'myscale':
+                    # MyScale 使用与 ClickHouse 相同的 clickhouse_connect 驱动
+                    db_config = self.config['database_connections']['myscale'].copy()
+                    db_config['database'] = db_identifier
+                    
+                    db_config['connect_timeout'] = self.db_connection_timeout
+                    query_settings = {'max_execution_time': self.sql_execution_timeout}
+
+                    client = clickhouse_connect.get_client(**db_config)
+                    
+                    result = client.query(translated_sql, settings=query_settings)
+                    
+                    return {
+                        "status": "success",
+                        "columns": result.column_names,
+                        "data": result.result_rows,
+                        "row_count": len(result.result_rows)
+                    }
+                # --- 新增结束 ---
                 else:
                     raise ValueError(f"不支持的数据库类型: {db_type}")
 
@@ -323,7 +343,7 @@ class ExecutionEngine:
 def main():
     parser = argparse.ArgumentParser(description="Text2VectorSQL 执行与验证引擎")
     parser.add_argument("--sql", required=True, type=str, help="要执行的VectorSQL查询语句。")
-    parser.add_argument("--db-type", required=True, choices=['postgresql', 'clickhouse', 'sqlite'], help="目标数据库的类型。")
+    parser.add_argument("--db-type", required=True, choices=['postgresql', 'clickhouse', 'sqlite', 'myscale'], help="目标数据库的类型。")
     parser.add_argument("--db-identifier", required=True, type=str, help="数据库标识符 (数据库名或SQLite文件路径)。")
     parser.add_argument("--config", default="engine_config.yaml", type=str, help="引擎配置文件的路径。")
     

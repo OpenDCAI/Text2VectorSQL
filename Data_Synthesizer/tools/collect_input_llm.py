@@ -3,12 +3,13 @@ import random
 
 # 1. 定义您提供的三个JSON文件的路径列表
 file_paths = [
-    '/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data_deversity/input_llm.json',
-    '/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/postgresql/results/synthesis_data_deversity/input_llm.json',
-    '/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/clickhouse/results/synthesis_data_deversity/input_llm.json'
+    '/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data/input_llm.json',
+    '/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/postgresql/results/synthesis_data/input_llm.json',
+    '/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/myscale/results/synthesis_data/input_llm.json',
+    '/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/clickhouse/results/synthesis_data/input_llm.json'
 ]
 
-output_file_path = 'collected_input_llm.json'
+output_file_path = 'results/collected_input_llm.json'
 
 
 # 2. 初始化一个空列表，用于存放所有合并后的数据

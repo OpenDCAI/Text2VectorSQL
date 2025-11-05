@@ -12,7 +12,7 @@ import sys
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # 只需要修改这里，就可以加载不同的数据集配置！
-DATASET_BACKEND = "sqlite" # "clickhouse"
+DATASET_BACKEND = "postgresql" # "clickhouse"
 DATASET_TO_LOAD = "synthesis_data" # "synthesis_data" "wikipedia_multimodal" "synthesis_data_deversity"
 # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
 
@@ -287,12 +287,12 @@ def main():
 
 
 
-    # 下面的算子是生成llm的输入输出对, 给我llm做微调用的
+    # 下面的算子是生成llm的输入输出时, 给我llm做微调用的
     print("################################################")
     print("生成llm输入")
     generate_input_llm(config.paths.dataset_json_path_input, config.paths.tables_json_path_input, config.paths.prompt_tamplate_path_infer_input, config.paths.output_path_input,config.parameters.dataset_backend, config.paths.database_note_prompt_path,config.services.openai.get('embedding_model_name'))
 
-    # # 下面的算子是生成llm的输入输出对, 给我llm做微调用的（只有训练数据需要）（弃用）
+    # # 下面的算子是生成llm的输入输出时, 给我llm做微调用的（只有训练数据需要）（弃用）
     # print("################################################")
     # print("生成llm输出")
     # generate_output_llm(config.paths.output_path_input, config.paths.output_llm_train_path)
