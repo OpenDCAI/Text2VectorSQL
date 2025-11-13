@@ -7,6 +7,9 @@ import glob
 import logging
 from contextlib import contextmanager
 from datetime import datetime
+### --- NEW --- ###
+from concurrent.futures import ProcessPoolExecutor, as_completed
+### --- NEW --- ###
 
 # Attempt to import dependencies, if they fail, log a warning
 try:
@@ -28,6 +31,7 @@ except ImportError:
 
 BATCH_SIZE = 10000 # You can adjust this value based on your available memory
 
+# ... (cleanup_postgres_db 和 cleanup_clickhouse_db 函数保持不变) ...
 def cleanup_postgres_db(args, db_name):
     """Connects to the PostgreSQL server and drops a specific database."""
     conn_admin = None
@@ -38,8 +42,6 @@ def cleanup_postgres_db(args, db_name):
         )
         conn_admin.autocommit = True
         with conn_admin.cursor() as cur:
-            # WITH (FORCE) is available from PostgreSQL 13+ and is very useful
-            # for terminating any lingering connections from the failed script.
             cur.execute(f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE);')
         logging.info("  ✔ Cleanup successful.")
     except Exception as e:
@@ -64,6 +66,9 @@ def cleanup_clickhouse_db(args, db_name):
         if client:
             client.disconnect()
 
+# ... (coerce_value, translate_type_*, translate_schema_*, find_database_files, sqlite_conn, get_sqlite_schema, get_vec_info 保持不变) ...
+# [此处省略了所有未修改的函数，以节省空间]
+# [您原始脚本中的 coerce_value...get_vec_info 函数应放在这里]
 def coerce_value(value, target_type_str):
     """
     根据目标数据库的列类型字符串，将 Python 值强制转换为更具体的类型，
@@ -355,6 +360,10 @@ def get_vec_info(conn):
                 vec_info[table_name]['columns'].append({'name': col_name, 'dim': dimension})
     return vec_info
 
+# ... (migrate_to_postgres 和 migrate_to_clickhouse 函数保持不变) ...
+# [此处省略了未修改的 migrate_to_postgres 和 migrate_to_clickhouse]
+# [您原始脚本中的 migrate_to_postgres 和 migrate_to_clickhouse 应放在这里]
+
 def migrate_to_postgres(args, db_name, source_db_path):
     """Performs migration to PostgreSQL (with sqlite-vec support)."""
     if not psycopg2:
@@ -445,7 +454,8 @@ def migrate_to_postgres(args, db_name, source_db_path):
                             vector_column_indices = {i: item['dim'] for i, name in enumerate(column_names) for item in vec_info_for_table['columns'] if item['name'] == name}
                         
                         logging.info("  - Starting batch insert of %d rows into PostgreSQL...", total_rows)
-                        progress_bar = tqdm(total=total_rows, desc=f"  📤 Migrating {table_name}", unit="rows") if tqdm else None
+                        # 在并行工作进程中禁用tqdm，因为它会搞乱主进度条
+                        # progress_bar = tqdm(total=total_rows, desc=f"  📤 Migrating {table_name}", unit="rows") if tqdm else None
                         while True:
                             rows_batch = source_cur.fetchmany(BATCH_SIZE)
                             if not rows_batch: break
@@ -482,8 +492,8 @@ def migrate_to_postgres(args, db_name, source_db_path):
                                 ', '.join(['%s'] * len(column_names))
                             )
                             execute_batch(target_cur, insert_query, final_data, page_size=1000)
-                            if progress_bar: progress_bar.update(len(rows_batch))
-                        if progress_bar: progress_bar.close()
+                            # if progress_bar: progress_bar.update(len(rows_batch))
+                        # if progress_bar: progress_bar.close()
                         logging.info("  ✔ Table %s data migration complete.", table_name_quoted)
             target_conn.commit()
             logging.info("\n🎉 All tables migrated successfully!")
@@ -562,7 +572,8 @@ def migrate_to_clickhouse(args, db_name, source_db_path):
                     vector_column_indices = {i: item['dim'] for i, name in enumerate(column_names) for item in vec_info_for_table['columns'] if item['name'] == name}
 
                 logging.info("  - Starting batch insert of %d rows into ClickHouse...", total_rows)
-                progress_bar = tqdm(total=total_rows, desc=f"  📤 Migrating {table_name}", unit="rows") if tqdm else None
+                # 在并行工作进程中禁用tqdm，因为它会搞乱主进度条
+                # progress_bar = tqdm(total=total_rows, desc=f"  📤 Migrating {table_name}", unit="rows") if tqdm else None
                 while True:
                     rows_batch = source_cur.fetchmany(BATCH_SIZE)
                     if not rows_batch: break
@@ -593,8 +604,8 @@ def migrate_to_clickhouse(args, db_name, source_db_path):
                     if not final_data: continue
                     insert_statement = f"INSERT INTO `{table_name}` ({', '.join([f'`{c}`' for c in column_names])}) VALUES"
                     client.execute(insert_statement, final_data, types_check=True)
-                    if progress_bar: progress_bar.update(len(rows_batch))
-                if progress_bar: progress_bar.close()
+                    # if progress_bar: progress_bar.update(len(rows_batch))
+                # if progress_bar: progress_bar.close()
                 logging.info("  ✔ Table '%s' data migration complete.", table_name)
         logging.info("\n🎉 All tables migrated successfully!")
 
@@ -604,58 +615,80 @@ def migrate_to_clickhouse(args, db_name, source_db_path):
     finally:
         if client: client.disconnect()
 
-def migrate_to_both_backends(database_files, pg_args, ch_args):
-    """Orchestrates the migration of SQLite databases to BOTH PostgreSQL and ClickHouse."""
-    logging.info("🚀 Starting migration to both PostgreSQL and ClickHouse backends.")
-    if not database_files:
-        logging.warning("✖ No database files found. Exiting.")
-        return [], [], []
+### --- NEW --- ###
+def run_migration_task(db_file, db_name, target, task_args, pg_args, ch_args):
+    """
+    A self-contained worker function to be run in a process pool.
+    It handles one DB file and returns a status tuple.
+    
+    NOTE: Logging from this function will be interleaved in the console,
+    which is expected behavior in a parallel setup.
+    """
+    pg_success, ch_success = None, None
+    pg_error, ch_error = None, None
 
-    successful_migrations, pg_failures, ch_failures = [], [], []
-    for i, db_file in enumerate(database_files, 1):
-        logging.info("\n======================================================================")
-        logging.info("🔄 Processing file %d/%d: %s", i, len(database_files), os.path.basename(db_file))
-        logging.info("======================================================================")
-        db_name = os.path.splitext(os.path.basename(db_file))[0]
-        db_name = re.sub(r'[^a-zA-Z0-9_]', '_', db_name).lower()
-        pg_success, ch_success = False, False
+    logging.info("======================================================================")
+    logging.info("🔄 [Worker] Processing: %s (Target DB: %s)", os.path.basename(db_file), db_name)
+    logging.info("======================================================================")
 
+    if target == 'postgresql':
         try:
-            logging.info("\n  -> Attempting migration to PostgreSQL (DB: %s)...", db_name)
+            migrate_to_postgres(task_args, db_name, db_file)
+            pg_success = True
+            logging.info("✅ [Worker] SUCCESS: PostgreSQL migration for %s", db_name)
+        except Exception as e:
+            pg_success = False
+            pg_error = str(e)
+            logging.error("❌ [Worker] FAILED: PostgreSQL migration for %s: %s", db_name, e)
+    
+    elif target == 'clickhouse':
+        try:
+            migrate_to_clickhouse(task_args, db_name, db_file)
+            ch_success = True
+            logging.info("✅ [Worker] SUCCESS: ClickHouse migration for %s", db_name)
+        except Exception as e:
+            ch_success = False
+            ch_error = str(e)
+            logging.error("❌ [Worker] FAILED: ClickHouse migration for %s: %s", db_name, e)
+    
+    elif target == 'both':
+        # PostgreSQL
+        try:
+            logging.info("  -> [Worker] Attempting PostgreSQL for %s...", db_name)
             migrate_to_postgres(pg_args, db_name, db_file)
             pg_success = True
-            logging.info("  ✔ Successfully migrated '%s' to PostgreSQL.", db_name)
+            logging.info("  ✔ [Worker] SUCCESS: PostgreSQL for %s", db_name)
         except Exception as e:
-            logging.error("  ❌ FAILED to migrate '%s' to PostgreSQL.", db_name)
-            logging.error("     Error: %s", e)
-
+            pg_success = False
+            pg_error = str(e)
+            logging.error("  ❌ [Worker] FAILED: PostgreSQL for %s: %s", db_name, e)
+        
+        # ClickHouse
         try:
-            logging.info("\n  -> Attempting migration to ClickHouse (DB: %s)...", db_name)
+            logging.info("  -> [Worker] Attempting ClickHouse for %s...", db_name)
             migrate_to_clickhouse(ch_args, db_name, db_file)
             ch_success = True
-            logging.info("  ✔ Successfully migrated '%s' to ClickHouse.", db_name)
+            logging.info("  ✔ [Worker] SUCCESS: ClickHouse for %s", db_name)
         except Exception as e:
-            logging.error("  ❌ FAILED to migrate '%s' to ClickHouse.", db_name)
-            logging.error("     Error: %s", e)
+            ch_success = False
+            ch_error = str(e)
+            logging.error("  ❌ [Worker] FAILED: ClickHouse for %s: %s", db_name, e)
 
-        logging.info("\n  -- Summary for this file --")
-        if not pg_success: pg_failures.append(db_name)
-        if not ch_success: ch_failures.append(db_name)
-        if pg_success and ch_success:
-            successful_migrations.append(db_name)
-            logging.info("  ✅ SUCCESS: '%s' was migrated to BOTH backends.", db_name)
-        else:
-            logging.warning("  ⚠️ INCOMPLETE: Migration for '%s' failed on at least one backend.", db_name)
-            logging.info("     PostgreSQL: %s", 'Success' if pg_success else 'Failed')
-            logging.info("     ClickHouse: %s", 'Success' if ch_success else 'Failed')
-    
-    return successful_migrations, pg_failures, ch_failures
+    return (db_name, pg_success, pg_error, ch_success, ch_error)
 
+
+### --- DELETED --- ###
+# The `migrate_to_both_backends` function is no longer needed,
+# its logic is now inside `run_migration_task` and the `main` function's result processing.
+
+
+### --- MODIFIED --- ###
 def main():
     # --- Setup Logging ---
     logging.basicConfig(
-        level=logging.WARNING,
-        format='%(asctime)s - %(levelname)s - %(message)s',
+        ### --- MODIFIED --- ###
+        level=logging.INFO, # Changed from WARNING to INFO to see progress
+        format='%(asctime)s - %(levelname)s - [%(processName)s] - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     
@@ -678,6 +711,14 @@ def main():
     parser.add_argument('--port', type=int, help="Target DB port (for single-target mode).")
     parser.add_argument('--user', help="Target DB username (for single-target mode).")
     parser.add_argument('--password', help="Target DB password (for single-target mode).")
+    
+    ### --- NEW --- ###
+    # A safe default for workers: min(32, cpu_count + 4). 
+    # For DB work, more workers than cores can be useful due to I/O wait.
+    # But with 100+ CPUs, we cap at a reasonable number to avoid overwhelming the target DBs.
+    # 你可以根据你的100+CPU环境，把 32 调整得更高，比如 64 或 96
+    default_workers = min(32, (os.cpu_count() or 1) + 4)
+    parser.add_argument('--workers', type=int, default=default_workers, help="Number of parallel migration processes to run.")
 
     pg_group = parser.add_argument_group('PostgreSQL Options (for --target=both)')
     pg_group.add_argument('--pg-host', default='localhost', help="[PostgreSQL] Host.")
@@ -702,25 +743,101 @@ def main():
         logging.warning("✖ No migratable database files were found.")
         return
 
-    success_count, error_count = 0, 0
+    ### --- MODIFIED --- ###
+    # This section is completely rewritten for parallelism.
+    
+    logging.info("🚀 Starting parallel migration for %d files using %d workers...", len(database_files), args.workers)
+
+    # Prepare arguments for 'both' mode
+    pg_args = argparse.Namespace(host=args.pg_host, port=args.pg_port, user=args.pg_user, password=args.pg_password)
+    ch_args = argparse.Namespace(host=args.ch_host, port=args.ch_port, user=args.ch_user, password=args.ch_password)
+    
+    # Prepare arguments for 'single' mode
+    task_args = None
+    if args.target != 'both':
+        if args.host is None: args.host = 'localhost'
+        if args.port is None: args.port = 5432 if args.target == 'postgresql' else 9000
+        if args.user is None: args.user = 'postgres' if args.target == 'postgresql' else 'default'
+        if args.password is None: args.password = 'postgres' if args.target == 'postgresql' else ''
+        task_args = args # Pass the main args namespace
+
+    # Dictionaries to store results
+    successful_dbs = []
+    pg_failures = []
+    ch_failures = []
+    
+    with ProcessPoolExecutor(max_workers=args.workers) as executor:
+        futures = []
+        for db_file in database_files:
+            db_name = os.path.splitext(os.path.basename(db_file))[0]
+            db_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(db_name)).lower()
+            
+            # Submit the task to the pool
+            future = executor.submit(
+                run_migration_task, 
+                db_file, 
+                db_name, 
+                args.target, 
+                task_args,  # For single-target mode
+                pg_args,    # For 'both' mode
+                ch_args     # For 'both' mode
+            )
+            futures.append(future)
+
+        logging.info("All %d migration tasks submitted to the pool. Waiting for completion...", len(futures))
+        
+        # Setup tqdm progress bar
+        progress_bar = None
+        if tqdm:
+            progress_bar = tqdm(total=len(futures), desc="Migrating Databases", unit="db")
+        
+        # Process results as they complete
+        for future in as_completed(futures):
+            try:
+                (db_name, pg_success, pg_error, ch_success, ch_error) = future.result()
+
+                if args.target == 'postgresql':
+                    if pg_success:
+                        successful_dbs.append(db_name)
+                    else:
+                        pg_failures.append(db_name)
+                elif args.target == 'clickhouse':
+                    if ch_success:
+                        successful_dbs.append(db_name)
+                    else:
+                        ch_failures.append(db_name)
+                elif args.target == 'both':
+                    if pg_success and ch_success:
+                        successful_dbs.append(db_name)
+                    if not pg_success:
+                        pg_failures.append(db_name)
+                    if not ch_success:
+                        ch_failures.append(db_name)
+            
+            except Exception as e:
+                # This catches errors in the worker process *itself* before our try/except
+                logging.error("A worker process failed unexpectedly: %s", e)
+            
+            if progress_bar:
+                progress_bar.update(1)
+
+        if progress_bar:
+            progress_bar.close()
+
+    # --- Final Report ---
+    total_files = len(database_files)
+    success_count = len(successful_dbs)
+    
+    logging.info("\n======================================================================")
+    logging.info("🎯 Final Migration Report (Mode: %s)", args.target)
+    logging.info("======================================================================")
+    logging.info("  Total files processed: %d", total_files)
 
     if args.target == 'both':
-        pg_args = argparse.Namespace(host=args.pg_host, port=args.pg_port, user=args.pg_user, password=args.pg_password)
-        ch_args = argparse.Namespace(host=args.ch_host, port=args.ch_port, user=args.ch_user, password=args.ch_password)
-        
-        successful_dbs, pg_failures, ch_failures = migrate_to_both_backends(database_files, pg_args, ch_args)
-        
-        success_count = len(successful_dbs)
-        error_count = len(database_files) - success_count
-        
-        logging.info("\n======================================================================")
-        logging.info("🎯 Final Migration Report (Mode: both)")
-        logging.info("======================================================================")
-        logging.info("  Total files processed: %d", len(database_files))
         logging.info("  Fully successful (migrated to both backends): %d", success_count)
-        logging.info("  Partially or fully failed: %d", error_count)
+        logging.info("  Partially or fully failed: %d", total_files - success_count)
         if successful_dbs:
-            logging.info("\n  List of successfully migrated databases:")
+            logging.info("\n  List of fully successful databases:")
             for db in successful_dbs: logging.info("    - %s", db)
         if pg_failures:
             logging.warning("\n  List of databases that FAILED PostgreSQL migration:")
@@ -728,49 +845,22 @@ def main():
         if ch_failures:
             logging.warning("\n  List of databases that FAILED ClickHouse migration:")
             for db in ch_failures: logging.warning("    - %s", db)
-        logging.info("======================================================================")
-
     else:
-        if args.host is None: args.host = 'localhost'
-        if args.port is None: args.port = 5432 if args.target == 'postgresql' else 9000
-        if args.user is None: args.user = 'postgres' if args.target == 'postgresql' else 'default'
-        if args.password is None: args.password = 'postgres' if args.target == 'postgresql' else ''
-        
-        logging.info("\n📊 Migration Task:")
-        logging.info("  Source Path: %s", args.source)
-        logging.info("  Target Type: %s", args.target)
-        logging.info("  Target Host: %s:%s", args.host, args.port)
-        logging.info("  Database files found: %d", len(database_files))
+        logging.info("  Successful: %d", success_count)
+        logging.info("  Failed: %d", total_files - success_count)
+        if successful_dbs:
+            logging.info("\n  List of successful databases:")
+            for db in successful_dbs: logging.info("    - %s", db)
+        failures = pg_failures if args.target == 'postgresql' else ch_failures
+        if failures:
+            logging.warning("\n  List of databases that FAILED migration:")
+            for db in failures: logging.warning("    - %s", db)
 
-        for i, db_file in enumerate(database_files, 1):
-            logging.info("\n======================================================================")
-            logging.info("🔄 Processing database %d/%d: %s", i, len(database_files), os.path.basename(db_file))
-            logging.info("======================================================================")
-            try:
-                db_name = os.path.splitext(os.path.basename(db_file))[0]
-                db_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(db_name)).lower()
-                logging.info("Target database name: %s", db_name)
-                
-                if args.target == 'postgresql': migrate_to_postgres(args, db_name, db_file)
-                elif args.target == 'clickhouse': migrate_to_clickhouse(args, db_name, db_file)
-                
-                success_count += 1
-                logging.info("✅ Database %d/%d migrated successfully: %s", i, len(database_files), os.path.basename(db_file))
-            except Exception:
-                error_count += 1
-                logging.exception("❌ Database %d/%d failed to migrate: %s", i, len(database_files), os.path.basename(db_file))
-
-        logging.info("\n======================================================================")
-        logging.info("🎯 Migration Complete (Mode: %s):", args.target)
-        logging.info("   Total files: %d", len(database_files))
-        logging.info("   Successful: %d", success_count)
-        logging.info("   Failed: %d", error_count)
-        logging.info("======================================================================")
-
-    if error_count > 0:
-        logging.warning("⚠️  %d database migration tasks did not complete successfully. Please review the logs for errors.", error_count)
+    total_failures = len(pg_failures) + len(ch_failures)
+    if total_failures > 0:
+        logging.warning("\n⚠️  %d migration tasks did not complete successfully. Please review the logs above.", total_failures)
     else:
-        logging.info("🎉 All database migration tasks completed successfully!")
+        logging.info("\n🎉 All database migration tasks completed successfully!")
 
 
 if __name__ == '__main__':

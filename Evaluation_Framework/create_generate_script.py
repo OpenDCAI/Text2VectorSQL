@@ -109,12 +109,13 @@ if __name__ == '__main__':
     DATABASE_BACKENDS = [
         'sqlite',
         'clickhouse',
-        'postgresql'
+        'postgresql',
+        'myscale'
     ]
 
     MODES = [
-        # 'api', 
-        'vllm'
+        'api', 
+        # 'vllm'
     ]
     
     DATASETS = [
@@ -175,12 +176,12 @@ if __name__ == '__main__':
         # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step900',
         # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step1000',
         # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step1100',
-        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step500',
-        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step1000',
-        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step1500',
-        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step500',
-        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step1000',
-        '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step1500',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step500',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step1000',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step1500',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step500',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step1000',
+        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step1500',
 
 
         # ## Open-source LLMs (14B-32B)

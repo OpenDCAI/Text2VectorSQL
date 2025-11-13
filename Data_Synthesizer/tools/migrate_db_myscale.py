@@ -7,6 +7,11 @@ import glob
 import logging
 from contextlib import contextmanager
 from datetime import datetime
+### --- NEW --- ###
+# 导入并行处理库
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
+### --- NEW --- ###
 
 # 尝试导入依赖
 try:
@@ -21,6 +26,11 @@ except ImportError:
 
 BATCH_SIZE = 10000  # 你可以根据内存调整
 
+# ... cleanup_myscale_db, coerce_value, translate_type_for_myscale, 
+# ... translate_schema_for_myscale, find_database_files, sqlite_conn, 
+# ... get_sqlite_schema, get_vec_info 函数保持不变 ...
+# [此处省略了所有未修改的函数，以节省空间]
+# [您原始脚本中的 cleanup_myscale_db ... get_vec_info 函数应放在这里]
 def cleanup_myscale_db(args, db_name):
     """连接到 MyScale/ClickHouse 服务器并删除一个特定的数据库。"""
     client = None
@@ -237,13 +247,17 @@ def get_vec_info(conn):
                 vec_info[table_name]['columns'].append({'name': col_name, 'dim': dimension})
     return vec_info
 
+
 def migrate_to_myscale(args, db_name, source_db_path):
     """执行到 MyScale 的迁移 (基于 migrate_to_clickhouse)。"""
     if not Client:
         logging.error("clickhouse-driver 未安装。请运行 'pip install clickhouse-driver'。")
         return
-    if not tqdm:
-        logging.warning("tqdm 未安装。进度条将不会显示。")
+    
+    ### --- MODIFIED --- ###
+    # 在并行工作进程中不显示 tqdm
+    # if not tqdm:
+    #     logging.warning("tqdm 未安装。进度条将不会显示。")
     
     logging.info("\n🚀 开始迁移到 MyScale...")
     client = None
@@ -320,7 +334,11 @@ def migrate_to_myscale(args, db_name, source_db_path):
                     vector_column_indices = {i: item['dim'] for i, name in enumerate(column_names) for item in vec_info_for_table['columns'] if item['name'] == name}
 
                 logging.info("  - 开始向 MyScale 批量插入 %d 行数据...", total_rows)
-                progress_bar = tqdm(total=total_rows, desc=f"  📤 迁移 {table_name}", unit="rows") if tqdm else None
+                
+                ### --- MODIFIED --- ###
+                # 禁用内部 tqdm 进度条
+                # progress_bar = tqdm(total=total_rows, desc=f"  📤 迁移 {table_name}", unit="rows") if tqdm else None
+                progress_bar = None
                 
                 data_to_insert = []
 
@@ -358,10 +376,14 @@ def migrate_to_myscale(args, db_name, source_db_path):
                     # 为了提高性能，可以累积更多数据再插入，但这里我们保持原脚本的逻辑
                     insert_statement = f"INSERT INTO `{table_name}` ({', '.join([f'`{c}`' for c in column_names])}) VALUES"
                     client.execute(insert_statement, data_to_insert, types_check=True)
-                    if progress_bar: progress_bar.update(len(data_to_insert))
+                    
+                    ### --- MODIFIED --- ###
+                    # if progress_bar: progress_bar.update(len(data_to_insert))
+                    
                     data_to_insert = [] # 清空批次
-
-                if progress_bar: progress_bar.close()
+                
+                ### --- MODIFIED --- ###
+                # if progress_bar: progress_bar.close()
                 logging.info("  ✔ 表 '%s' 数据迁移完成。", table_name)
         logging.info("\n🎉 所有表已成功迁移到 MyScale！")
 
@@ -373,10 +395,37 @@ def migrate_to_myscale(args, db_name, source_db_path):
     finally:
         if client: client.disconnect()
 
+### --- NEW --- ###
+def run_myscale_migration_task(db_file, args):
+    """
+    一个独立的工作函数，用于在进程池中运行。
+    处理单个 SQLite 文件到 MyScale 的迁移。
+    """
+    db_name = os.path.splitext(os.path.basename(db_file))[0]
+    db_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(db_name)).lower()
+    
+    logging.info("======================================================================")
+    logging.info("🔄 [Worker] 正在处理: %s (目标数据库: %s)", os.path.basename(db_file), db_name)
+    logging.info("======================================================================")
+    
+    try:
+        # 调用核心迁移逻辑
+        migrate_to_myscale(args, db_name, db_file)
+        logging.info("✅ [Worker] 成功: %s", db_name)
+        return (db_name, True, None) # (数据库名称, 是否成功, 错误信息)
+    except Exception as e:
+        # 记录错误，但允许主进程继续
+        logging.error("❌ [Worker] 失败: %s. 错误: %s", db_name, e)
+        return (db_name, False, str(e))
+### --- NEW --- ###
+
+
 def main():
     logging.basicConfig(
-        level=logging.INFO, # 将日志级别设为 INFO 以查看更多详情
-        format='%(asctime)s - %(levelname)s - %(message)s',
+        level=logging.INFO, 
+        ### --- MODIFIED --- ###
+        # 添加 %(processName)s 以区分来自不同进程的日志
+        format='%(asctime)s - %(levelname)s - [%(processName)s] - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     
@@ -397,6 +446,18 @@ def main():
     parser.add_argument('--user', default='default', help="[MyScale] 用户名。")
     parser.add_argument('--password', default='', help="[MyScale] 密码。")
     
+    ### --- NEW --- ###
+    # 添加 --workers 参数
+    # 默认值：min(32, cpu_count + 4)。对于有 100+ CPU 的你，可以设置一个更高的默认值，
+    # 但 32 是一个安全（且通常高效）的起点，以避免使数据库过载。
+    try:
+        default_workers = min(32, (multiprocessing.cpu_count() or 1) + 4)
+    except NotImplementedError:
+        default_workers = 8 # 一个保守的备用值
+        
+    parser.add_argument('--workers', type=int, default=default_workers, help="要运行的并行迁移进程数。")
+    ### --- NEW --- ###
+    
     args = parser.parse_args()
 
     if not os.path.exists(args.source):
@@ -408,41 +469,70 @@ def main():
         logging.warning("✖ 未找到可迁移的数据库文件。")
         return
 
-    success_count, error_count = 0, 0
-
+    ### --- MODIFIED --- ###
+    # 用并行执行器替换串行循环
+    
     logging.info("\n📊 迁移任务:")
     logging.info("  源路径: %s", args.source)
     logging.info("  目标类型: MyScale")
     logging.info("  目标主机: %s:%s", args.host, args.port)
     logging.info("  找到的数据库文件: %d", len(database_files))
+    logging.info("  并行工作进程数: %d", args.workers)
 
-    for i, db_file in enumerate(database_files, 1):
-        logging.info("\n======================================================================")
-        logging.info("🔄 正在处理数据库 %d/%d: %s", i, len(database_files), os.path.basename(db_file))
-        logging.info("======================================================================")
-        try:
-            # 标准化数据库名称 (MyScale/ClickHouse 对名称有限制)
-            db_name = os.path.splitext(os.path.basename(db_file))[0]
-            db_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(db_name)).lower()
-            logging.info("目标数据库名称: %s", db_name)
+    success_dbs = []
+    failed_dbs = []
+
+    logging.info("🚀 正在启动 %d 个工作进程的并行迁移...", args.workers)
+    
+    with ProcessPoolExecutor(max_workers=args.workers) as executor:
+        # 提交所有任务
+        futures = {
+            executor.submit(run_myscale_migration_task, db_file, args): db_file
+            for db_file in database_files
+        }
+
+        # 设置主进度条 (跟踪文件)
+        progress_bar = None
+        if tqdm:
+            progress_bar = tqdm(total=len(futures), desc="迁移数据库文件", unit="db")
+
+        # 在任务完成时处理结果
+        for future in as_completed(futures):
+            try:
+                (db_name, success, error_msg) = future.result()
+                if success:
+                    success_dbs.append(db_name)
+                else:
+                    failed_dbs.append((db_name, error_msg))
+            except Exception as e:
+                # 捕获工作进程本身的崩溃
+                db_file_path = futures[future]
+                db_name = os.path.splitext(os.path.basename(db_file_path))[0]
+                logging.error("工作进程 %s 意外崩溃: %s", db_name, e)
+                failed_dbs.append((db_name, str(e)))
             
-            migrate_to_myscale(args, db_name, db_file)
-            
-            success_count += 1
-            logging.info("✅ 数据库 %d/%d 迁移成功: %s", i, len(database_files), os.path.basename(db_file))
-        except Exception:
-            error_count += 1
-            logging.exception("❌ 数据库 %d/%d 迁移失败: %s", i, len(database_files), os.path.basename(db_file))
+            if progress_bar:
+                progress_bar.update(1)
+
+        if progress_bar:
+            progress_bar.close()
+
+    # --- 新的最终报告 ---
+    success_count = len(success_dbs)
+    error_count = len(failed_dbs)
+    total_files = len(database_files)
 
     logging.info("\n======================================================================")
     logging.info("🎯 迁移完成 (模式: MyScale):")
-    logging.info("   总文件数: %d", len(database_files))
+    logging.info("   总文件数: %d", total_files)
     logging.info("   成功: %d", success_count)
     logging.info("   失败: %d", error_count)
     logging.info("======================================================================")
 
     if error_count > 0:
-        logging.warning("⚠️  %d 个数据库迁移任务未成功完成。请检查上面的日志。", error_count)
+        logging.warning("⚠️  %d 个数据库迁移任务失败:", error_count)
+        for db_name, error_msg in failed_dbs:
+            logging.warning("    - %s (错误: %s)", db_name, error_msg)
     else:
         logging.info("🎉 所有数据库迁移任务均已成功完成！")
 
