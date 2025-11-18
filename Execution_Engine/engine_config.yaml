@@ -30,7 +30,7 @@ database_connections:
     host: "112.126.57.89"
     port: 8123                 # HTTP 协议端口 9000
     user: "default"
-    password: ""               # MyScale 的密码 (如果设置了)
+    password: "myscale#EDC"               # MyScale 的密码 (如果设置了)
   # --- 新增结束 ---
 
 # SQLite不需要配置模板，因为它的连接就是文件路径本身

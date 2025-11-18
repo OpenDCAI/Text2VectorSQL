@@ -142,16 +142,39 @@ def process_item_for_backend(item, db_id, target_db, engine, schema, ConverterCl
     try:
         converter = ConverterClass(original_sql)
         converted_sql, integration_level = converter.convert()
+        
+        # 执行 SQL
         result = engine.execute(sql=converted_sql, db_type=target_db, db_identifier=db_id)
 
         if result.get('status') == 'success':
             processed_item['sql'] = converted_sql
             processed_item['integration_level'] = integration_level
+            processed_item['execution_status'] = 'success' # 标记成功
         else:
-            return None
-    except Exception:
-        return None
+            # --- 修复点开始 ---
+            # 即使失败，也保留这个条目，并记录错误，方便你在 JSON 中看到原因
+            # 如果你只想要成功的，至少在这里加个日志打印
+            error_msg = result.get('error', 'Unknown Error')
+            logging.warning(f"[{target_db}] SQL执行失败 DB:{db_id}\nSQL: {converted_sql}\nErr: {error_msg}")
+            
+            # 策略 A: 仍然返回 item，但在里面标记错误（建议调试用）
+            processed_item['sql'] = converted_sql
+            processed_item['execution_status'] = 'failed'
+            processed_item['error_message'] = str(error_msg)
+            processed_item['integration_level'] = '0'
+            
+            # 策略 B: 如果你坚决只想要成功的，保持 return None，但必须看上面的 logging.warning
+            # return None 
+            # --- 修复点结束 ---
+            
+    except Exception as e:
+        logging.error(f"[{target_db}] 转换或执行异常: {e}")
+        # 同上，建议返回带有错误信息的 item
+        processed_item['execution_status'] = 'exception'
+        processed_item['error_message'] = str(e)
+        # return None
 
+    # 处理候选 SQL (保持原样，但建议也增加异常捕获日志)
     new_candidates = []
     for candidate_sql in item.get('sql_candidate', []):
         try:
@@ -302,7 +325,7 @@ def process_one_dataset(dataset_name, args, common_dbs_pg_ch, common_dbs_ms, all
 def main():
     # --- 参数解析 ---
     parser = argparse.ArgumentParser(description="Batch Parallel SQL Validator")
-    parser.add_argument('--workers', type=int, default=min(32, (multiprocessing.cpu_count() or 1) + 4))
+    parser.add_argument('--workers', type=int, default=min(32, (multiprocessing.cpu_count() or 1)))
     parser.add_argument('--myscale_password', type=str, default='', help="MyScale password")
     
     # 新增参数：允许通过命令行指定数据集列表，用逗号分隔

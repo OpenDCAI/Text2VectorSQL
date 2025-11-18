@@ -440,11 +440,11 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
-    parser.add_argument('--source', default='/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data/vector_databases', help="源 SQLite 数据库文件或文件夹路径。")
-    parser.add_argument('--host', default='8.140.37.123', help="[MyScale] 集群主机名 (例如 'your-cluster.db.myscale.com')。")
+    parser.add_argument('--source', default='/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/spider/vector_databases', help="源 SQLite 数据库文件或文件夹路径。")
+    parser.add_argument('--host', default='112.126.57.89', help="[MyScale] 集群主机名 (例如 'your-cluster.db.myscale.com')。")
     parser.add_argument('--port', type=int, default=9000, help="[MyScale] 安全连接端口 (通常是 8443)。")
     parser.add_argument('--user', default='default', help="[MyScale] 用户名。")
-    parser.add_argument('--password', default='', help="[MyScale] 密码。")
+    parser.add_argument('--password', default='myscale#EDC', help="[MyScale] 密码。")
     
     ### --- NEW --- ###
     # 添加 --workers 参数
