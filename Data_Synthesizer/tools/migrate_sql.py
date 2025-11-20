@@ -3,23 +3,51 @@ import uuid
 from textwrap import dedent
 import logging
 import json
+from typing import List
 
 from Execution_Engine.execution_engine import ExecutionEngine, TimeoutError
 
 # 定义一组 SQL 关键字，用于辅助判断别名是否合法
 SQL_KEYWORDS = {'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'ON', 'GROUP', 'ORDER', 'LIMIT', 'UNION', 'CROSS', 'HAVING', 'SELECT', 'FROM', 'AS'}
 
+def _fix_distance_aliases(sql: str) -> str:
+    alias_queue: List[str] = []
+
+    def repl_distance(match: re.Match) -> str:
+        alias = match.group(1)
+        alias_queue.append(alias)
+        return f"AS {alias}"
+
+    sql = re.sub(r"\bAS\s+distance\s+as\s+([a-zA-Z0-9_`]+)", repl_distance, sql, flags=re.IGNORECASE)
+
+    def repl_order(match: re.Match) -> str:
+        if alias_queue:
+            return f"{match.group(1)} {alias_queue.pop(0)}"
+        return match.group(0)
+
+    sql = re.sub(r"(\bORDER BY\b)\s+distance\b", repl_order, sql, flags=re.IGNORECASE)
+    return sql
+
+SELECT_LINE_WITH_DOT = re.compile(
+    r"^(?P<indent>\s*)(?P<alias>[a-zA-Z0-9_`]+)\.(?P<column>[a-zA-Z0-9_`]+)(?P<trailing>\s*,?\s*)$",
+    re.MULTILINE
+)
+
+def _alias_select_dot_columns(sql: str) -> str:
+    def repl(match: re.Match) -> str:
+        indent = match.group('indent')
+        alias = match.group('alias')
+        column = match.group('column')
+        trailing = match.group('trailing')
+        clean_col = column.strip('`')
+        return f"{indent}{alias}.{column} AS {clean_col}{trailing}"
+
+    return SELECT_LINE_WITH_DOT.sub(repl, sql)
+
 class SQLiteToClickHouseConverter:
     """
     自动将使用 sqlite-vec 和 sqlite-lembed 的复杂 SQLite 查询
     转换为优化的 ClickHouse 向量搜索查询。
-
-    核心特性 (V11 - 简化CTE列名):
-    - **简化CTE列名**: 在多向量搜索的CTE下推策略中，将生成的距离列名（如`distance_c`）统一简化为`distance`。
-    - **修正主查询丢失**: 修复了当查询包含CTE且向量搜索在主查询中时，主查询丢失的严重Bug。
-    - **精准定位SELECT**: 修正了ORDER BY子句中的distance干扰SELECT列生成的Bug。
-    - **智能替换/注入**: 智能处理（替换或注入）别名或裸distance列。
-    - **LIMIT约束支持**: 能正确识别并处理 `LIMIT k` 作为向量搜索的约束条件。
     """
 
     def __init__(self, sqlite_query, distance_function='L2Distance'):
@@ -29,183 +57,8 @@ class SQLiteToClickHouseConverter:
         self.original_ctes = {}
 
     def _classify_integration(self, main_query, all_local_searches, all_pushed_filters) -> int:
-        """分析向量搜索和SQL謂詞的耦合程度。"""
-        integration_level = 0
-        
-        # Level 1 (WHERE-Integration): 存在被下推的WHERE條件
-        if any(all_pushed_filters.values()):
-            integration_level = 1
-
-        # Level 2 (JOIN-Integration): 存在通過JOIN或跨表WHERE條件進行的篩選
-        all_query_blocks = self.original_ctes.copy()
-        all_query_blocks['main'] = main_query
-        
-        found_level_2 = False
-        for block_name, block_content in all_query_blocks.items():
-            if found_level_2: break
-            
-            local_vs_aliases = set(all_local_searches.get(block_name, {}).keys())
-            if not local_vs_aliases: continue
-
-            # 分析 WHERE 子句中涉及向量搜索表和其他表的條件
-            where_match = re.search(r'\bWHERE\s+(.*?)(?=\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', block_content, re.S | re.I)
-            if where_match:
-                conditions = self._split_where_conditions(where_match.group(1))
-                for cond in conditions:
-                    if 'MATCH lembed' in cond.upper() or re.search(r'\bK\s*=', cond, re.I):
-                        continue
-                    
-                    mentioned_aliases = set(re.findall(r'\b(\w+)\.', cond))
-                    
-                    # 如果一個條件同時涉及到向量搜索表別名和非向量搜索表別名，則為JOIN-Integration
-                    if local_vs_aliases.intersection(mentioned_aliases) and mentioned_aliases.difference(local_vs_aliases):
-                        integration_level = 2
-                        found_level_2 = True
-                        break
-            
-            if found_level_2: break
-
-            # 分析 JOIN ON 子句
-            from_join_content_match = re.search(r'\bFROM\s+(.*?)(?=\bWHERE|\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', block_content, re.S | re.I)
-            if from_join_content_match:
-                from_join_content = from_join_content_match.group(1)
-                join_on_matches = re.finditer(r'\bJOIN\s+.+?\s+ON\s+(.*?)(?=\b(LEFT|RIGHT|INNER|FULL|CROSS)?\s*JOIN|\Z)', from_join_content, re.S | re.I)
-                for match in join_on_matches:
-                    cond = match.group(1)
-                    mentioned_aliases = set(re.findall(r'\b(\w+)\.', cond))
-                    
-                    # 如果ON條件連接了向量搜索表和非向量搜索表，則為JOIN-Integration
-                    if local_vs_aliases.intersection(mentioned_aliases) and mentioned_aliases.difference(local_vs_aliases):
-                        integration_level = 2
-                        found_level_2 = True
-                        break
-        
-        return integration_level
-
-    def _classify_integration(self, main_query, all_local_searches, all_pushed_filters) -> int:
-        """
-        分析向量搜索与SQL谓词的耦合程度，并将其分为更详细的等级。
-
-        - Level 0: 无向量搜索。
-        - Level 1: 单一简单向量搜索 (Single Simple Search)。
-                   - 只有一个向量搜索。
-                   - 没有对向量表进行预先的WHERE过滤或JOIN过滤。
-        - Level 2: 单一预过滤向量搜索 (Single Pre-filtered Search)。
-                   - 只有一个向量搜索。
-                   - 存在可以直接下推到向量搜索表的WHERE条件。
-        - Level 3: 单一Join过滤向量搜索 (Single Join-filtered Search)。
-                   - 只有一个向量搜索。
-                   - 向量搜索表通过JOIN或跨表的WHERE条件与其他表关联，这些条件在向量搜索前对数据进行过滤。
-        - Level 4: 多重独立向量搜索 (Multiple Independent Searches)。
-                   - 存在多个向量搜索。
-                   - 这些向量搜索的结果之间没有直接的JOIN或依赖关系（例如，通过UNION组合）。
-        - Level 5: 多重交互式向量搜索 (Multiple Interactive Searches)。
-                   - 存在多个向量搜索。
-                   - 一个向量搜索的结果（作为CTE）被用于JOIN或子查询，从而影响另一个向量搜索。
-        """
-        num_searches = len(self.vector_searches)
-
-        if num_searches == 0:
-            return 0
-
-        if num_searches == 1:
-            # 默认为Level 1 (单一简单向量搜索)
-            level = 1
-            
-            # 检查是否存在下推的WHERE条件，如果存在，则为Level 2
-            if any(all_pushed_filters.values()):
-                level = 2
-
-            # 检查是否存在JOIN或跨表WHERE过滤，如果存在，则为Level 3
-            # 这个检查比Level 2的检查更优先，因为Join过滤是更复杂的场景
-            all_query_blocks = self.original_ctes.copy()
-            all_query_blocks['main'] = main_query
-            
-            found_join_filter = False
-            for block_name, block_content in all_query_blocks.items():
-                if block_name not in all_local_searches: continue
-                if found_join_filter: break
-
-                local_vs_aliases = set(all_local_searches.get(block_name, {}).keys())
-                if not local_vs_aliases: continue
-
-                # 1. 分析 WHERE 子句
-                where_match = re.search(r'\bWHERE\s+(.*?)(?=\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', block_content, re.S | re.I)
-                if where_match:
-                    conditions = self._split_where_conditions(where_match.group(1))
-                    for cond in conditions:
-                        # 跳过向量搜索本身的子句
-                        if 'MATCH lembed' in cond.upper() or re.search(r'\bK\s*=', cond, re.I):
-                            continue
-                        
-                        mentioned_aliases = set(re.findall(r'\b(\w+)\.', cond))
-                        # 如果一个条件同时涉及到向量搜索表和其他表，则为Join过滤
-                        if local_vs_aliases.intersection(mentioned_aliases) and mentioned_aliases.difference(local_vs_aliases):
-                            found_join_filter = True
-                            break
-                if found_join_filter: break
-
-                # 2. 分析 JOIN ON 子句
-                from_join_content_match = re.search(r'\bFROM\s+(.*?)(?=\bWHERE|\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', block_content, re.S | re.I)
-                if from_join_content_match:
-                    from_join_content = from_join_content_match.group(1)
-                    join_on_matches = re.finditer(r'\bJOIN\s+.+?\s+ON\s+(.*?)(?=\b(LEFT|RIGHT|INNER|FULL|CROSS)?\s*JOIN|\Z)', from_join_content, re.S | re.I)
-                    for match in join_on_matches:
-                        cond = match.group(1)
-                        mentioned_aliases = set(re.findall(r'\b(\w+)\.', cond))
-                        # 如果ON条件连接了向量搜索表和非向量搜索表，则为Join过滤
-                        if local_vs_aliases.intersection(mentioned_aliases) and mentioned_aliases.difference(local_vs_aliases):
-                            found_join_filter = True
-                            break
-            
-            if found_join_filter:
-                return 3
-            else:
-                return level
-
-        if num_searches > 1:
-            # 默认为Level 4 (多重独立向量搜索)
-            level = 4
-
-            # 检查是否存在交互式搜索，如果存在，则为Level 5
-            # 交互式：一个查询块同时(1)执行了向量搜索 (2)引用了另一个向量搜索的结果CTE
-            vector_result_ctes = {f"{alias}_filtered" for searches in all_local_searches.values() for alias in searches}
-
-            all_query_blocks = self.original_ctes.copy()
-            all_query_blocks['main'] = main_query
-
-            for block_name, block_content in all_query_blocks.items():
-                # 条件1: 当前块执行了向量搜索
-                if block_name in all_local_searches:
-                    # 条件2: 当前块引用了其他向量搜索的结果
-                    # 我们需要找到在 FROM 或 JOIN 子句中引用的表/CTE
-                    from_join_content_match = re.search(r'\bFROM\s+(.*?)(?=\bWHERE|\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', block_content, re.S | re.I)
-                    if from_join_content_match:
-                        from_join_content = from_join_content_match.group(1)
-                        # 通过正则表达式查找引用的标识符
-                        referenced_identifiers = set(re.findall(r'\b(\w+)\b', from_join_content))
-                        
-                        # 如果引用的标识符与向量搜索结果CTE的名称有交集
-                        if referenced_identifiers.intersection(vector_result_ctes):
-                            return 5
-            
-            return level
-
-        return 0 # 理论上不会执行到这里
-
-    def _classify_integration(self, main_query, all_local_searches, all_pushed_filters) -> int:
         """
         分析向量搜索和SQL谓词的耦合程度，并将其分为10个详细级别。
-        Level 0: No Vector Search
-        Level 1: Pure Vector Search (no other filters/joins)
-        Level 2: Pre-filtered Vector Search (WHERE condition on the same table)
-        Level 3: Post-filtered Vector Search (vector search in CTE, filtered by outer query)
-        Level 4: Vector Search with Aggregation (GROUP BY, COUNT, etc.)
-        Level 5: Simple Join Integration (JOIN with other tables)
-        Level 6: Vector Search within Subquery (e.g., IN (SELECT ...))
-        Level 7: Multiple Independent Vector Searches (e.g., UNION)
-        Level 8: Multiple Interdependent Vector Searches (results of one search used by another)
-        Level 9: Hybrid High-Complexity Search (combines multiple complex patterns)
         """
         if not self.vector_searches:
             return 0
@@ -591,7 +444,9 @@ class SQLiteToClickHouseConverter:
             if final_cte_strings:
                 with_clause += ",\n\n" + ",\n\n".join(final_cte_strings)
             
-            return f"{with_clause}\n\n{main_part};", integration_level
+            final_sql = f"{with_clause}\n\n{main_part};"
+            final_sql = _fix_distance_aliases(final_sql)
+            return final_sql, integration_level
 
         else: # 多向量搜索逻辑
             logging.info(f"检测到 {len(self.vector_searches)} 个向量搜索，采用CTE下推过滤策略。")
@@ -636,6 +491,7 @@ class SQLiteToClickHouseConverter:
             
             final_with_clause = "WITH\n" + ",\n\n".join(filter(None, output_parts))
             final_query = f"{final_with_clause}\n\n{modified_blocks['main']};"
+            final_query = _fix_distance_aliases(final_query)
             return final_query, integration_level
             
 
@@ -665,14 +521,6 @@ class SQLiteToPostgreSQLConverter:
     """
     自动将使用 sqlite-vec 和 sqlite-lembed 的复杂 SQLite 查询
     转换为优化的、使用 pgvector 扩展的 PostgreSQL 查询。
-
-    核心特性 (V3 - 优化列顺序):
-    - **优化列顺序**: 在单向量搜索注入中，将生成的 `distance` 列移动到 SELECT 字段的末尾。
-    - **修正引号处理**: 重写了标识符加引号的逻辑，采用更稳定的方式，完美处理SQL语句中的字符串字面量。
-    - **PostgreSQL 语法适配**: 生成使用 '<->' 操作符的 pgvector 标准语法。
-    - **智能标识符加引号**: 自动为表名和列名添加双引号，以符合PostgreSQL的大小写敏感规则。
-    - **增强的lembed解析**: 支持解析由单引号或双引号包裹的字符串。
-    - **保留复杂查询转换**: 完整保留了对 CTE、多向量搜索、预过滤下推等复杂场景的支持。
     """
 
     def __init__(self, sqlite_query):
@@ -681,183 +529,8 @@ class SQLiteToPostgreSQLConverter:
         self.original_ctes = {}
 
     def _classify_integration(self, main_query, all_local_searches, all_pushed_filters) -> int:
-        """分析向量搜索和SQL謂詞的耦合程度。"""
-        integration_level = 0
-        
-        # Level 1 (WHERE-Integration): 存在被下推的WHERE條件
-        if any(all_pushed_filters.values()):
-            integration_level = 1
-
-        # Level 2 (JOIN-Integration): 存在通過JOIN或跨表WHERE條件進行的篩選
-        all_query_blocks = self.original_ctes.copy()
-        all_query_blocks['main'] = main_query
-        
-        found_level_2 = False
-        for block_name, block_content in all_query_blocks.items():
-            if found_level_2: break
-            
-            local_vs_aliases = set(all_local_searches.get(block_name, {}).keys())
-            if not local_vs_aliases: continue
-
-            # 分析 WHERE 子句中涉及向量搜索表和其他表的條件
-            where_match = re.search(r'\bWHERE\s+(.*?)(?=\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', block_content, re.S | re.I)
-            if where_match:
-                conditions = self._split_where_conditions(where_match.group(1))
-                for cond in conditions:
-                    if 'MATCH lembed' in cond.upper() or re.search(r'\bK\s*=', cond, re.I):
-                        continue
-                    
-                    mentioned_aliases = set(re.findall(r'\b(\w+)\.', cond))
-                    
-                    # 如果一個條件同時涉及到向量搜索表別名和非向量搜索表別名，則為JOIN-Integration
-                    if local_vs_aliases.intersection(mentioned_aliases) and mentioned_aliases.difference(local_vs_aliases):
-                        integration_level = 2
-                        found_level_2 = True
-                        break
-            
-            if found_level_2: break
-
-            # 分析 JOIN ON 子句
-            from_join_content_match = re.search(r'\bFROM\s+(.*?)(?=\bWHERE|\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', block_content, re.S | re.I)
-            if from_join_content_match:
-                from_join_content = from_join_content_match.group(1)
-                join_on_matches = re.finditer(r'\bJOIN\s+.+?\s+ON\s+(.*?)(?=\b(LEFT|RIGHT|INNER|FULL|CROSS)?\s*JOIN|\Z)', from_join_content, re.S | re.I)
-                for match in join_on_matches:
-                    cond = match.group(1)
-                    mentioned_aliases = set(re.findall(r'\b(\w+)\.', cond))
-                    
-                    # 如果ON條件連接了向量搜索表和非向量搜索表，則為JOIN-Integration
-                    if local_vs_aliases.intersection(mentioned_aliases) and mentioned_aliases.difference(local_vs_aliases):
-                        integration_level = 2
-                        found_level_2 = True
-                        break
-        
-        return integration_level
-
-    def _classify_integration(self, main_query, all_local_searches, all_pushed_filters) -> int:
-        """
-        分析向量搜索与SQL谓词的耦合程度，并将其分为更详细的等级。
-
-        - Level 0: 无向量搜索。
-        - Level 1: 单一简单向量搜索 (Single Simple Search)。
-                   - 只有一个向量搜索。
-                   - 没有对向量表进行预先的WHERE过滤或JOIN过滤。
-        - Level 2: 单一预过滤向量搜索 (Single Pre-filtered Search)。
-                   - 只有一个向量搜索。
-                   - 存在可以直接下推到向量搜索表的WHERE条件。
-        - Level 3: 单一Join过滤向量搜索 (Single Join-filtered Search)。
-                   - 只有一个向量搜索。
-                   - 向量搜索表通过JOIN或跨表的WHERE条件与其他表关联，这些条件在向量搜索前对数据进行过滤。
-        - Level 4: 多重独立向量搜索 (Multiple Independent Searches)。
-                   - 存在多个向量搜索。
-                   - 这些向量搜索的结果之间没有直接的JOIN或依赖关系（例如，通过UNION组合）。
-        - Level 5: 多重交互式向量搜索 (Multiple Interactive Searches)。
-                   - 存在多个向量搜索。
-                   - 一个向量搜索的结果（作为CTE）被用于JOIN或子查询，从而影响另一个向量搜索。
-        """
-        num_searches = len(self.vector_searches)
-
-        if num_searches == 0:
-            return 0
-
-        if num_searches == 1:
-            # 默认为Level 1 (单一简单向量搜索)
-            level = 1
-            
-            # 检查是否存在下推的WHERE条件，如果存在，则为Level 2
-            if any(all_pushed_filters.values()):
-                level = 2
-
-            # 检查是否存在JOIN或跨表WHERE过滤，如果存在，则为Level 3
-            # 这个检查比Level 2的检查更优先，因为Join过滤是更复杂的场景
-            all_query_blocks = self.original_ctes.copy()
-            all_query_blocks['main'] = main_query
-            
-            found_join_filter = False
-            for block_name, block_content in all_query_blocks.items():
-                if block_name not in all_local_searches: continue
-                if found_join_filter: break
-
-                local_vs_aliases = set(all_local_searches.get(block_name, {}).keys())
-                if not local_vs_aliases: continue
-
-                # 1. 分析 WHERE 子句
-                where_match = re.search(r'\bWHERE\s+(.*?)(?=\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', block_content, re.S | re.I)
-                if where_match:
-                    conditions = self._split_where_conditions(where_match.group(1))
-                    for cond in conditions:
-                        # 跳过向量搜索本身的子句
-                        if 'MATCH lembed' in cond.upper() or re.search(r'\bK\s*=', cond, re.I):
-                            continue
-                        
-                        mentioned_aliases = set(re.findall(r'\b(\w+)\.', cond))
-                        # 如果一个条件同时涉及到向量搜索表和其他表，则为Join过滤
-                        if local_vs_aliases.intersection(mentioned_aliases) and mentioned_aliases.difference(local_vs_aliases):
-                            found_join_filter = True
-                            break
-                if found_join_filter: break
-
-                # 2. 分析 JOIN ON 子句
-                from_join_content_match = re.search(r'\bFROM\s+(.*?)(?=\bWHERE|\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', block_content, re.S | re.I)
-                if from_join_content_match:
-                    from_join_content = from_join_content_match.group(1)
-                    join_on_matches = re.finditer(r'\bJOIN\s+.+?\s+ON\s+(.*?)(?=\b(LEFT|RIGHT|INNER|FULL|CROSS)?\s*JOIN|\Z)', from_join_content, re.S | re.I)
-                    for match in join_on_matches:
-                        cond = match.group(1)
-                        mentioned_aliases = set(re.findall(r'\b(\w+)\.', cond))
-                        # 如果ON条件连接了向量搜索表和非向量搜索表，则为Join过滤
-                        if local_vs_aliases.intersection(mentioned_aliases) and mentioned_aliases.difference(local_vs_aliases):
-                            found_join_filter = True
-                            break
-            
-            if found_join_filter:
-                return 3
-            else:
-                return level
-
-        if num_searches > 1:
-            # 默认为Level 4 (多重独立向量搜索)
-            level = 4
-
-            # 检查是否存在交互式搜索，如果存在，则为Level 5
-            # 交互式：一个查询块同时(1)执行了向量搜索 (2)引用了另一个向量搜索的结果CTE
-            vector_result_ctes = {f"{alias}_filtered" for searches in all_local_searches.values() for alias in searches}
-
-            all_query_blocks = self.original_ctes.copy()
-            all_query_blocks['main'] = main_query
-
-            for block_name, block_content in all_query_blocks.items():
-                # 条件1: 当前块执行了向量搜索
-                if block_name in all_local_searches:
-                    # 条件2: 当前块引用了其他向量搜索的结果
-                    # 我们需要找到在 FROM 或 JOIN 子句中引用的表/CTE
-                    from_join_content_match = re.search(r'\bFROM\s+(.*?)(?=\bWHERE|\bGROUP BY|\bORDER BY|\bLIMIT|\Z)', block_content, re.S | re.I)
-                    if from_join_content_match:
-                        from_join_content = from_join_content_match.group(1)
-                        # 通过正则表达式查找引用的标识符
-                        referenced_identifiers = set(re.findall(r'\b(\w+)\b', from_join_content))
-                        
-                        # 如果引用的标识符与向量搜索结果CTE的名称有交集
-                        if referenced_identifiers.intersection(vector_result_ctes):
-                            return 5
-            
-            return level
-
-        return 0 # 理论上不会执行到这里
-
-    def _classify_integration(self, main_query, all_local_searches, all_pushed_filters) -> int:
         """
         分析向量搜索和SQL谓词的耦合程度，并将其分为10个详细级别。
-        Level 0: No Vector Search
-        Level 1: Pure Vector Search (no other filters/joins)
-        Level 2: Pre-filtered Vector Search (WHERE condition on the same table)
-        Level 3: Post-filtered Vector Search (vector search in CTE, filtered by outer query)
-        Level 4: Vector Search with Aggregation (GROUP BY, COUNT, etc.)
-        Level 5: Simple Join Integration (JOIN with other tables)
-        Level 6: Vector Search within Subquery (e.g., IN (SELECT ...))
-        Level 7: Multiple Independent Vector Searches (e.g., UNION)
-        Level 8: Multiple Interdependent Vector Searches (results of one search used by another)
-        Level 9: Hybrid High-Complexity Search (combines multiple complex patterns)
         """
         if not self.vector_searches:
             return 0
@@ -1351,25 +1024,69 @@ class SQLiteToPostgreSQLConverter:
         final_sql = final_query if final_query.endswith(';') else final_query + ";"
         return self._quote_all_identifiers(final_sql), integration_level
 
-class SQLiteToMyScaleConverter(SQLiteToClickHouseConverter):
+class SQLiteToMyScaleConverter:
     """
-    将 SQLite 转换为 MyScale SQL。
-    由于 MyScale 基于 ClickHouse，我们可以直接继承 ClickHouse 转换器。
-    
-    注意：如果 MyScale 有特殊的向量索引语法 (例如 CREATE VECTOR INDEX ...)，
-    你可能需要重写(override) 'convert' 方法来自定义 CREATE TABLE 语句的翻译。
-    
-    但对于 SELECT/INSERT/UPDATE/DELETE 查询，它应该与 ClickHouse 相同。
+    将 SQLite 转换为 MyScale (ClickHouse) SQL。
+    通过复用 ClickHouse 转换器，确保复杂 CTE/多向量查询也能正确 rewrite。
     """
-    def __init__(self, sql):
-        # 直接调用父类 (ClickHouse) 的构造函数
-        super().__init__(sql)
+    def __init__(self, sql, embed_service_url="http://localhost:8000/embed"):
+        self.sql = sql.strip().rstrip(';')
+        self.embed_service_url = embed_service_url
+
+    def _normalize_lembed_calls(self, sql: str) -> str:
+        """
+        将 lembed 第二个参数中的双引号/反引号统一替换为单引号，避免正则无法匹配。
+        """
+        pattern = re.compile(
+            r"lembed\('(?P<model>[^']+)',\s*(?P<quote>['\"`])(?P<text>.*?)(?P=quote)\)",
+            re.IGNORECASE | re.DOTALL
+        )
+
+        def _replace(match: re.Match) -> str:
+            model = match.group('model')
+            text = match.group('text').replace("'", "''")
+            return f"lembed('{model}', '{text}')"
+
+        return pattern.sub(_replace, sql)
 
     def convert(self):
-        # 直接调用父类 (ClickHouse) 的转换方法
-        # 这将返回 (converted_sql, integration_level)
-        return super().convert()
-    
+        ch_converter = SQLiteToClickHouseConverter(self.sql, distance_function='distance')
+        converted_sql, integration_level = ch_converter.convert()
+        converted_sql = self._normalize_lembed_calls(converted_sql)
+        
+        # MyScale 偏好使用反引号 / ILike
+        converted_sql = converted_sql.replace('"', '`')
+        converted_sql = converted_sql.replace(" ILIKE ", " ILike ")
+
+        # 处理 date('now', '-1 year') 这类写法
+        def fix_date_func(match):
+            modifier = match.group(1).lower()
+            val_match = re.search(r'(-?\d+)\s*(year|month|day)', modifier)
+            if val_match:
+                val = int(val_match.group(1))
+                unit = val_match.group(2).upper()
+                if val < 0:
+                    return f"date_sub({unit}, {abs(val)}, now())"
+                return f"date_add({unit}, {val}, now())"
+            return "now()"
+
+        converted_sql = re.sub(r"date\('now',\s*'([^']+)'\)", fix_date_func, converted_sql, flags=re.IGNORECASE)
+        converted_sql = re.sub(r"date\('now'\)", "now()", converted_sql, flags=re.IGNORECASE)
+        converted_sql = re.sub(r"\bCURRENT_TIMESTAMP\b", "now()", converted_sql, flags=re.IGNORECASE)
+
+        # JOIN 类型不匹配 -> toString
+        def fix_join_on(match):
+            left = match.group(1)
+            op = match.group(2)
+            right = match.group(3)
+            return f"ON toString({left}) {op} toString({right})"
+        converted_sql = re.sub(r"ON\s+([a-zA-Z0-9_`\.]+)\s*(=)\s*([a-zA-Z0-9_`\.]+)", fix_join_on, converted_sql, flags=re.IGNORECASE)
+
+        converted_sql = _alias_select_dot_columns(converted_sql)
+        converted_sql = _fix_distance_aliases(converted_sql)
+
+        return converted_sql, integration_level
+       
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
     # --- 新增功能：集成执行引擎 ---

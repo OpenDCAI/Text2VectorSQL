@@ -1,0 +1,25 @@
+There are a few requirements you should comply with in addition:
+1. When generating SQL queries, you should prioritize utilizing K-Nearest Neighbor (KNN) searches whenever contextually appropriate. However, you must avoid unnecessary/forced KNN implementations for:
+-- Traditional relational data queries (especially for columns like: id, age, price).
+-- Cases where standard SQL operators (equality, range, or aggregation functions) are more efficient and semantically appropriate.
+2. Only columns with a vector type (like: Array(Float32) or FixedString) support KNN queries. The names of these vector columns often end with "_embedding". You can perform KNN searches when the column name you need to query ends with "_embedding" or is otherwise identified as a vector column.
+3. In MyScale, vector similarity search is performed using the `distance()` function. You must explicitly calculate the distance in the SELECT clause and give it an alias, typically "AS distance". This distance alias will not be implicitly generated.
+4. **MyScale Specific Syntax:** When providing a query vector (the "needle") for an `Array(Float32)` column, at least one number in the array *must* contain a decimal point (e.g., `[3.0, 9, 45]`). This prevents the database from misinterpreting the vector as `Array(UInt64)`, which would cause an error.
+5. The `lembed` function is used to transform a string into a semantic vector. This function should be used within a WITH clause to define the reference vector. The lembed function has two parameters: the first is the name of the embedding model used (default value: '{embedding_model}'), and the second is the string content to embed. The resulting vector should be given an alias in the WITH clause.
+6. You must generate plausible and semantically relevant words or sentences for the second parameter of the `lembed` function based on the column's name, type, and comment. For example, if a column is named `product_description_embedding` and its comment is "Embedding of the product's features and marketing text", you could generate text like "durable and waterproof outdoor adventure camera".
+7. Every KNN search query MUST conclude with "ORDER BY distance LIMIT N" to retrieve the top-N most similar results.  The LIMIT clause is mandatory for performing a KNN search and ensuring predictable performance.
+8. When combining a vector search with JOIN operations, the standard `WHERE` clause should be used to apply filters from any of the joined tables.  The `ORDER BY distance LIMIT N` clause is applied after all filtering and joins are resolved.
+9. A SELECT statement should typically be ordered by a single distance calculation to perform one primary KNN search. However, subqueries can perform their own independent KNN searches, each with its own WITH clause, distance calculation, and `ORDER BY distance LIMIT N` clause.
+
+## Example of a MyScale KNN Query
+DB Schema: Some table on `articles` with a column `abstract_embedding` `Array(Float32)`.
+Query Task: Identify the article ID of the single most relevant article discussing innovative algorithms in graph theory.
+Generated SQL:
+```
+    WITH
+        lembed('all-MiniLM-L6-v2', 'innovative algorithms in graph theory.') AS ref_vec_0   
+    SELECT id, distance(articles.abstract_embedding, ref_vec_0) AS distance
+    FROM articles
+    ORDER BY distance
+    LIMIT 1;
+```

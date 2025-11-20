@@ -165,14 +165,21 @@ def translate_schema_for_myscale(create_sql):
         else:
             parts = re.split(r'\s+', col_def, 2)
             col_name = parts[0].strip('`"')
-            if len(parts) > 1:
+            if not col_name:
+                continue
+            if len(parts) > 1 and parts[1]:
                 sqlite_type = parts[1].split('(')[0]
-                ch_type = translate_type_for_myscale(sqlite_type)
-                if 'NOT NULL' not in col_def.upper():
-                    ch_type = f'Nullable({ch_type})'
-                lines.append(f'`{col_name}` {ch_type}')
+            else:
+                # 某些表 (如 concept_vector) 只有列名没有类型，默认当作 TEXT
+                sqlite_type = 'TEXT'
+            ch_type = translate_type_for_myscale(sqlite_type)
+            if 'NOT NULL' not in col_def.upper():
+                ch_type = f'Nullable({ch_type})'
+            lines.append(f'`{col_name}` {ch_type}')
                 
     all_definitions = lines + constraints + indices
+    if not all_definitions:
+        raise ValueError(f"无法生成 `{table_name}` 的列定义: {create_sql}")
     create_table_ch = f"CREATE TABLE `{table_name}` (\n    "
     create_table_ch += ',\n    '.join(all_definitions)
     # MyScale 推荐使用 MergeTree 或 ReplicatedMergeTree
@@ -185,18 +192,31 @@ def find_database_files(source_path):
     """(从原脚本中重用)"""
     database_files = []
     if os.path.isfile(source_path):
-        if source_path.lower().endswith(('.db', '.sqlite', '.sqlite3')):
-            database_files.append(source_path)
+        candidates = [source_path]
     elif os.path.isdir(source_path):
         logging.info("🔍 正在搜索目录 '%s' 中的数据库文件...", source_path)
         patterns = ['**/*.db', '**/*.sqlite', '**/*.sqlite3']
+        candidates = []
         for pattern in patterns:
-            files = glob.glob(os.path.join(source_path, pattern), recursive=True)
-            database_files.extend(files)
-        database_files = sorted(list(set(database_files)))
-        logging.info("✔ 找到 %d 个数据库文件。", len(database_files))
+            candidates.extend(glob.glob(os.path.join(source_path, pattern), recursive=True))
+        candidates = sorted(set(candidates))
+        logging.info("✔ 找到 %d 个数据库文件。", len(candidates))
     else:
         logging.error("✖ 路径 '%s' 不存在。", source_path)
+        return []
+
+    for path in candidates:
+        if not path.lower().endswith(('.db', '.sqlite', '.sqlite3')):
+            continue
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            continue
+        if size == 0:
+            logging.warning("⚠️ 检测到空的 SQLite 文件，已跳过: %s", path)
+            continue
+        database_files.append(path)
+
     return database_files
 
 # --- Database Connection & Operations ---

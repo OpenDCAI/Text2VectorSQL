@@ -4,8 +4,18 @@ import os
 
 from tqdm import tqdm
 
+
+def _filter_success_only(dataset_json):
+    """如果存在 execution_status 字段，仅保留成功记录。"""
+    has_status = any('execution_status' in item for item in dataset_json)
+    if not has_status:
+        return dataset_json
+    filtered = [item for item in dataset_json if item.get('execution_status') == 'success']
+    return filtered
+
 def generate_input_llm(dataset_json_path="../pipeline/sqlite/results/toy_spider/candidate_sql.json", tables_json_path="../pipeline/sqlite/results/toy_spider/embedding_table_vector.json", prompt_tamplate_path="../pipeline/sqlite/prompt_templates/sql_generate_prompt_template.txt", output_input_path="../pipeline/sqlite/results/toy_spider/input_llm.json",dataset_backend="sqlite",database_note_prompt_path="../pipeline/sqlite/prompt_templates/sqlite_vec_note_prompt.txt",embedding_model_name="all-MiniLM-L6-v2"):
     dataset_json = json.load(open(dataset_json_path))
+    dataset_json = _filter_success_only(dataset_json)
     print("len(question-vecsql):", len(dataset_json))
     
     if os.path.exists(tables_json_path):
@@ -49,6 +59,7 @@ def generate_input_llm(dataset_json_path="../pipeline/sqlite/results/toy_spider/
 
 def generate_output_llm(dataset_json_path="../pipeline/sqlite/results/toy_spider/input_llm.json", output_path_input="../pipeline/sqlite/results/toy_spider/output_llm.json",dataset_backend="sqlite"):
     dataset_json = json.load(open(dataset_json_path))
+    dataset_json = _filter_success_only(dataset_json)
     print("len(question-vecsql):", len(dataset_json))
     
     for data in tqdm(dataset_json):
