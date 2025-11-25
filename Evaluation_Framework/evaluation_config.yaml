@@ -13,7 +13,7 @@ base_dir: /mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite
 evaluation_report_file: evaluation_report.json
 
 #项目的根目录
-project_dir: /mnt/b_public/data/ydw/Text2VectorSQL/
+project_dir: /mnt/DataFlow/ydw/Text2VectorSQL/
 
 # --- SQL Execution Configuration ---
 # Path to the configuration for the ExecutionEngine
@@ -45,7 +45,7 @@ embedding_service:
   # Model configuration
   models:
     - name: "all-MiniLM-L6-v2"
-      hf_model_path: "/mnt/b_public/data/ydw/Text2VectorSQL/Embedding_Service/models_cache/all-MiniLM-L6-v2"
+      hf_model_path: "/mnt/DataFlow/ydw/Text2VectorSQL/Embedding_Service/models_cache/all-MiniLM-L6-v2"
       trust_remote_code: true
       tensor_parallel_size: 1
       max_model_len: 256

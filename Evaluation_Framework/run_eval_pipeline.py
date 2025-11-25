@@ -162,6 +162,8 @@ Examples:
         check_service_status(args.config)
         return
 
+    SUPPORTED_DB_TYPES = {"sqlite", "postgresql", "clickhouse", "myscale"}
+
     # Load base config and apply command-line overrides
     try:
         with open(args.config, 'r', encoding='utf-8') as f:
@@ -188,6 +190,10 @@ Examples:
 
     if not db_type_val or not eval_data_file_val:
         print("Error: 'db_type' and 'eval_data_file' must be defined in the final configuration.")
+        sys.exit(1)
+
+    if db_type_val not in SUPPORTED_DB_TYPES:
+        print(f"Error: Unsupported db_type '{db_type_val}'. Supported types: {', '.join(sorted(SUPPORTED_DB_TYPES))}")
         sys.exit(1)
 
     # Derive {input_output} from the eval_data_file path

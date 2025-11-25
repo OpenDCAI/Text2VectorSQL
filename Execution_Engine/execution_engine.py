@@ -231,12 +231,47 @@ class ExecutionEngine:
                 else:
                     translated_sql = sql
 
-                prefix_path = SQLITE_DATABASE_PATH
-                db_identifier = f"{prefix_path}/{db_identifier}/{db_identifier}.sqlite"
-                new_db_id_PATH = Path(db_identifier)
+                # 1. 首先判断传入的 db_identifier 是否直接就是一个有效的文件路径
+                direct_path = Path(db_identifier)
+                
+                if direct_path.is_file():
+                    # 情况A: 传入的就是完整文件路径 (e.g., /mnt/data/db.sqlite)
+                    new_db_id_PATH = direct_path
+                elif direct_path.with_suffix('.sqlite').is_file():
+                    # 情况B: 传入的是完整路径但没带后缀 (e.g., /mnt/data/db)
+                    new_db_id_PATH = direct_path.with_suffix('.sqlite')
+                else:
+                    # 情况C: 传入的只是名称，需要拼接 SQLITE_DATABASE_PATH
+                    # e.g., db_identifier 是 "arxiv"
+                    prefix_path = Path(SQLITE_DATABASE_PATH)
+                    
+                    # 尝试结构 1: prefix/name/name.sqlite
+                    # 注意：如果 db_identifier 里包含了斜杠，直接拼接可能会出问题，所以只在它不是绝对路径时拼接
+                    if Path(db_identifier).is_absolute():
+                        # 如果是绝对路径但前两步没找到文件，说明文件真的不存在，或者路径错了
+                        # 这里为了防止重复拼接，我们不再拼 prefix，而是直接报错或尝试最后的 fallback
+                         check_paths = [direct_path] # 仅仅为了后续报错打印用
+                    else:
+                        # 正常拼接逻辑
+                        p1 = prefix_path / db_identifier / f"{db_identifier}.sqlite"
+                        p2 = prefix_path / db_identifier / db_identifier # 兼容无后缀文件
+                        
+                        if p1.is_file():
+                            new_db_id_PATH = p1
+                        elif p2.is_file():
+                            new_db_id_PATH = p2
+                        else:
+                            # 如果都没找到，记录一下我们尝试过的路径，方便报错
+                            new_db_id_PATH = p1 
+
+                # 最后检查确认文件是否存在
                 if not new_db_id_PATH.is_file():
-                    print(f"文件不存在 (或者它是一个目录): {new_db_id_PATH}")
-                    return None
+                    print(f"错误: 无法找到 SQLite 数据库文件。尝试加载的路径: {new_db_id_PATH}")
+                    print(f"原始 db_identifier: {db_identifier}")
+                    return {"status": "error", "message": f"SQLite文件不存在: {new_db_id_PATH}"}
+
+                # 更新 db_identifier 为最终确认的字符串路径
+                db_identifier = str(new_db_id_PATH)
                 
                     
                 # SQLite连接（通常很快，但添加超时保护）

@@ -36,69 +36,71 @@ from collections import OrderedDict, defaultdict
 # 默认模型配置 - 可以在代码中直接修改
 DEFAULT_MODEL_CONFIG = {
     "closed_source": [
-        {"name": "api_gpt-4o-mini", "display_name": "GPT-4o-mini"},
-        {"name": "api_gpt-4-turbo", "display_name": "GPT-4-Turbo"},
-        {"name": "api_gpt-4o", "display_name": "GPT-4o"},
-        {"name": "api_claude-3-5-haiku-20241022", "display_name": "Claude-3.5-Haiku"},
-        {"name": "api_claude-3-7-sonnet-20250219", "display_name": "Claude-3.7-Sonnet"},
-        {"name": "api_claude-4-sonnet", "display_name": "Claude-4-Sonnet"},
-        {"name": "api_gemini-2.5-flash", "display_name": "Gemini-2.5-Flash"},
-        {"name": "api_gemini-2.5-pro", "display_name": "Gemini-2.5-Pro"},
-        {"name": "api_grok-3", "display_name": "Grok-3"},
-        {"name": "api_grok-4", "display_name": "Grok-4"},
-        {"name": "api_command-r-plus-08-2024", "display_name": "Command-R-Plus-08-2024"},
+        # {"name": "api_gpt-4o-mini", "display_name": "GPT-4o-mini"},
+        # {"name": "api_gpt-4-turbo", "display_name": "GPT-4-Turbo"},
+        # {"name": "api_gpt-4o", "display_name": "GPT-4o"},
+        # {"name": "api_claude-3-5-haiku-20241022", "display_name": "Claude-3.5-Haiku"},
+        # {"name": "api_claude-3-7-sonnet-20250219", "display_name": "Claude-3.7-Sonnet"},
+        # {"name": "api_claude-4-sonnet", "display_name": "Claude-4-Sonnet"},
+        # {"name": "api_gemini-2.5-flash", "display_name": "Gemini-2.5-Flash"},
+        # {"name": "api_gemini-2.5-pro", "display_name": "Gemini-2.5-Pro"},
+        # {"name": "api_grok-3", "display_name": "Grok-3"},
+        # {"name": "api_grok-4", "display_name": "Grok-4"},
+        # {"name": "api_command-r-plus-08-2024", "display_name": "Command-R-Plus-08-2024"},
 
-        {"name": "vllm_OmniSQL-7B", "display_name": "OmniSQL-7B"},
-        {"name": "vllm_OmniSQL-14B", "display_name": "OmniSQL-14B"},
-        {"name": "vllm_OmniSQL-32B", "display_name": "OmniSQL-32B"},
+        # {"name": "vllm_OmniSQL-7B", "display_name": "OmniSQL-7B"},
+        # {"name": "vllm_OmniSQL-14B", "display_name": "OmniSQL-14B"},
+        # {"name": "vllm_OmniSQL-32B", "display_name": "OmniSQL-32B"},
 
-        {"name": "vllm_deepseek-coder-6.7b-instruct", "display_name": "DeepSeek-coder-6.7B-Instruct"},
-        {"name": "vllm_Qwen2.5-Coder-7B-Instruct", "display_name": "Qwen2.5-Coder-7B-Instruct"},
-        {"name": "vllm_Qwen2.5-7B-Instruct", "display_name": "Qwen2.5-7B-Instruct"},
-        {"name": "vllm_OpenCoder-8B-Instruct", "display_name": "OpenCoder-8B-Instruct"},
-        {"name": "vllm_Meta-Llama-3.1-8B-Instruct", "display_name": "Meta-Llama-3.1-8B-Instruct"},
-        {"name": "vllm_UniVectorSQL-7B-LoRA-Step600", "display_name": "UniVectorSQL-7B-LoRA-Step600"},
-        {"name": "vllm_UniVectorSQL-7B-LoRA-Step800", "display_name": "UniVectorSQL-7B-LoRA-Step800"},
-        {"name": "vllm_UniVectorSQL-7B-LoRA-Step1100", "display_name": "UniVectorSQL-7B-LoRA-Step1100"},
+        # {"name": "vllm_deepseek-coder-6.7b-instruct", "display_name": "DeepSeek-coder-6.7B-Instruct"},
+        # {"name": "vllm_Qwen2.5-Coder-7B-Instruct", "display_name": "Qwen2.5-Coder-7B-Instruct"},
+        # {"name": "vllm_Qwen2.5-7B-Instruct", "display_name": "Qwen2.5-7B-Instruct"},
+        # {"name": "vllm_OpenCoder-8B-Instruct", "display_name": "OpenCoder-8B-Instruct"},
+        # {"name": "vllm_Meta-Llama-3.1-8B-Instruct", "display_name": "Meta-Llama-3.1-8B-Instruct"},
+        # {"name": "vllm_UniVectorSQL-7B-LoRA-Step600", "display_name": "UniVectorSQL-7B-LoRA-Step600"},
+        # {"name": "vllm_UniVectorSQL-7B-LoRA-Step800", "display_name": "UniVectorSQL-7B-LoRA-Step800"},
+        # {"name": "vllm_UniVectorSQL-7B-LoRA-Step1100", "display_name": "UniVectorSQL-7B-LoRA-Step1100"},
 
-        {"name": "vllm_UniVectorSQL-7B-Step1100", "display_name": "UniVectorSQL-7B-Step1100"},
-        {"name": "vllm_UniVectorSQL-7B-Step1400", "display_name": "UniVectorSQL-7B-Step1400"},
-        {"name": "vllm_UniVectorSQL-7B-Step1800", "display_name": "UniVectorSQL-7B-Step1800"},
-        {"name": "vllm_UniVectorSQL-7B-Step2100", "display_name": "UniVectorSQL-7B-Step2100"},
-        {"name": "vllm_UniVectorSQL-7B-Step2500", "display_name": "UniVectorSQL-7B-Step2500"},
+        {"name": "vllm_UniVectorSQL-7B-LoRA-Step200", "display_name": "UniVectorSQL-7B-Step200"},
+        {"name": "vllm_UniVectorSQL-7B-LoRA-Step400", "display_name": "UniVectorSQL-7B-Step400"},
+        {"name": "vllm_UniVectorSQL-7B-LoRA-Step600", "display_name": "UniVectorSQL-7B-Step600"},
+        {"name": "vllm_UniVectorSQL-7B-LoRA-Step800", "display_name": "UniVectorSQL-7B-Step800"},
+        {"name": "vllm_UniVectorSQL-7B-LoRA-Step1000", "display_name": "UniVectorSQL-7B-Step1000"},
+        {"name": "vllm_UniVectorSQL-7B-LoRA-Step1200", "display_name": "UniVectorSQL-7B-Step1200"},
+        {"name": "vllm_UniVectorSQL-7B-LoRA-Step1600", "display_name": "UniVectorSQL-7B-Step1600"},
 
-        {"name": "vllm_UniVectorSQL-7B-No_CoT_Step100", "display_name": "UniVectorSQL-7B-No_CoT_Step100"},
-        {"name": "vllm_UniVectorSQL-7B-No_CoT_Step300", "display_name": "UniVectorSQL-7B-No_CoT_Step300"},
-        {"name": "vllm_UniVectorSQL-7B-No_CoT_Step500", "display_name": "UniVectorSQL-7B-No_CoT_Step500"},
-        {"name": "vllm_UniVectorSQL-7B-No_CoT_Step800", "display_name": "UniVectorSQL-7B-No_CoT_Step800"},
-        {"name": "vllm_UniVectorSQL-7B-No_CoT_Step1000", "display_name": "UniVectorSQL-7B-No_CoT_Step1000"},
+        # {"name": "vllm_UniVectorSQL-7B-No_CoT_Step100", "display_name": "UniVectorSQL-7B-No_CoT_Step100"},
+        # {"name": "vllm_UniVectorSQL-7B-No_CoT_Step300", "display_name": "UniVectorSQL-7B-No_CoT_Step300"},
+        # {"name": "vllm_UniVectorSQL-7B-No_CoT_Step500", "display_name": "UniVectorSQL-7B-No_CoT_Step500"},
+        # {"name": "vllm_UniVectorSQL-7B-No_CoT_Step800", "display_name": "UniVectorSQL-7B-No_CoT_Step800"},
+        # {"name": "vllm_UniVectorSQL-7B-No_CoT_Step1000", "display_name": "UniVectorSQL-7B-No_CoT_Step1000"},
 
-        {"name": "vllm_UniVectorSQL-14B-LoRA-Step200", "display_name": "UniVectorSQL-14B-LoRA-Step200"},
-        {"name": "vllm_UniVectorSQL-14B-LoRA-Step400", "display_name": "UniVectorSQL-14B-LoRA-Step400"},
-        {"name": "vllm_UniVectorSQL-14B-LoRA-Step600", "display_name": "UniVectorSQL-14B-LoRA-Step600"}, 
-        {"name": "vllm_UniVectorSQL-14B-LoRA-Step900", "display_name": "UniVectorSQL-14B-LoRA-Step900"},
-        {"name": "vllm_UniVectorSQL-14B-LoRA-Step1000", "display_name": "UniVectorSQL-14B-LoRA-Step1000"},
-        {"name": "vllm_UniVectorSQL-14B-LoRA-Step1100", "display_name": "UniVectorSQL-14B-LoRA-Step1100"},
+        # {"name": "vllm_UniVectorSQL-14B-LoRA-Step200", "display_name": "UniVectorSQL-14B-LoRA-Step200"},
+        # {"name": "vllm_UniVectorSQL-14B-LoRA-Step400", "display_name": "UniVectorSQL-14B-LoRA-Step400"},
+        # {"name": "vllm_UniVectorSQL-14B-LoRA-Step600", "display_name": "UniVectorSQL-14B-LoRA-Step600"}, 
+        # {"name": "vllm_UniVectorSQL-14B-LoRA-Step900", "display_name": "UniVectorSQL-14B-LoRA-Step900"},
+        # {"name": "vllm_UniVectorSQL-14B-LoRA-Step1000", "display_name": "UniVectorSQL-14B-LoRA-Step1000"},
+        # {"name": "vllm_UniVectorSQL-14B-LoRA-Step1100", "display_name": "UniVectorSQL-14B-LoRA-Step1100"},
 
-        {"name": "vllm_UniVectorSQL-14B-No_CoT-Step500", "display_name": "UniVectorSQL-14B-No_CoT-Step500"},
-        {"name": "vllm_UniVectorSQL-14B-No_CoT-Step1000", "display_name": "UniVectorSQL-14B-No_CoT-Step1000"},
-        {"name": "vllm_UniVectorSQL-14B-No_CoT-Step1500", "display_name": "UniVectorSQL-14B-No_CoT-Step1500"},
-        {"name": "vllm_UniVectorSQL-14B-Step500", "display_name": "UniVectorSQL-14B-Step500"},
-        {"name": "vllm_UniVectorSQL-14B-Step1000", "display_name": "UniVectorSQL-14B-Step1000"},
-        {"name": "vllm_UniVectorSQL-14B-Step1500", "display_name": "UniVectorSQL-14B-Step1500"},
+        # {"name": "vllm_UniVectorSQL-14B-No_CoT-Step500", "display_name": "UniVectorSQL-14B-No_CoT-Step500"},
+        # {"name": "vllm_UniVectorSQL-14B-No_CoT-Step1000", "display_name": "UniVectorSQL-14B-No_CoT-Step1000"},
+        # {"name": "vllm_UniVectorSQL-14B-No_CoT-Step1500", "display_name": "UniVectorSQL-14B-No_CoT-Step1500"},
+        # {"name": "vllm_UniVectorSQL-14B-Step500", "display_name": "UniVectorSQL-14B-Step500"},
+        # {"name": "vllm_UniVectorSQL-14B-Step1000", "display_name": "UniVectorSQL-14B-Step1000"},
+        # {"name": "vllm_UniVectorSQL-14B-Step1500", "display_name": "UniVectorSQL-14B-Step1500"},
 
-        {"name": "vllm_Qwen2.5-Coder-14B-Instruct", "display_name": "Qwen2.5-Coder-14B-Instruct"},
-        {"name": "vllm_Qwen2.5-14B-Instruct", "display_name": "Qwen2.5-14B-Instruct"},
-        {"name": "vllm_starcoder2-15b-instruct-v0.1", "display_name": "StarCoder2-15B-Instruct-V0.1"},
-        {"name": "vllm_DeepSeek-Coder-V2-Lite-Instruct", "display_name": "DeepSeek-Coder-V2-Lite-Instruct"},
-        {"name": "vllm_Codestral-22B-v0.1", "display_name": "Codestral-22B-V0.1"},
+        # {"name": "vllm_Qwen2.5-Coder-14B-Instruct", "display_name": "Qwen2.5-Coder-14B-Instruct"},
+        # {"name": "vllm_Qwen2.5-14B-Instruct", "display_name": "Qwen2.5-14B-Instruct"},
+        # {"name": "vllm_starcoder2-15b-instruct-v0.1", "display_name": "StarCoder2-15B-Instruct-V0.1"},
+        # {"name": "vllm_DeepSeek-Coder-V2-Lite-Instruct", "display_name": "DeepSeek-Coder-V2-Lite-Instruct"},
+        # {"name": "vllm_Codestral-22B-v0.1", "display_name": "Codestral-22B-V0.1"},
 
-        {"name": "vllm_Qwen2.5-Coder-32B-Instruct", "display_name": "Qwen2.5-Coder-32B-Instruct"},
-        {"name": "api_qwen2.5-32b-instruct", "display_name": "Qwen2.5-32B-Instruct"},
-        {"name": "vllm_deepseek-coder-33b-instruct", "display_name": "DeepSeek-Coder-33B-Instruct"},
-        {"name": "vllm_Meta-Llama-3.1-70B-Instruct", "display_name": "Meta-Llama-3.1-70B-Instruct"},
-        {"name": "api_qwen2.5-72b-instruct", "display_name": "Qwen2.5-72B-Instruct"},
-        {"name": "api_deepseek-v3.1-250821", "display_name": "DeepSeek-V3.1 (671B, MoE)"},
+        # {"name": "vllm_Qwen2.5-Coder-32B-Instruct", "display_name": "Qwen2.5-Coder-32B-Instruct"},
+        # {"name": "api_qwen2.5-32b-instruct", "display_name": "Qwen2.5-32B-Instruct"},
+        # {"name": "vllm_deepseek-coder-33b-instruct", "display_name": "DeepSeek-Coder-33B-Instruct"},
+        # {"name": "vllm_Meta-Llama-3.1-70B-Instruct", "display_name": "Meta-Llama-3.1-70B-Instruct"},
+        # {"name": "api_qwen2.5-72b-instruct", "display_name": "Qwen2.5-72B-Instruct"},
+        # {"name": "api_deepseek-v3.1-250821", "display_name": "DeepSeek-V3.1 (671B, MoE)"},
 
         # {"name": "vllm_Mixtral-8x7B-Instruct-v0.1", "display_name": "Mixtral-8x7B-Instruct-v0.1"},
     ]
@@ -182,7 +184,7 @@ def load_results_by_model_name(root_dir: str, model_name: str,
     metric2_dict = {}
     
     # 固定的数据库类型和数据集类型
-    db_types = ['sqlite', 'postgresql', 'clickhouse']
+    db_types = ['sqlite', 'postgresql', 'clickhouse', 'myscale']
     dataset_types = ['bird', 'spider', 'arxiv', 'wikipedia_multimodal']
     
     for db_type in db_types:
@@ -358,7 +360,7 @@ def generate_structured_csv(metric1_results: Dict[str, Dict[str, Dict[str, float
         metric1_name: 第一个指标的显示名称
         metric2_name: 第二个指标的显示名称
     """
-    db_types = ['sqlite', 'postgresql', 'clickhouse']
+    db_types = ['sqlite', 'postgresql', 'clickhouse', 'myscale']
     dataset_types = ['bird', 'spider', 'arxiv', 'wikipedia_multimodal']
     
     # 准备CSV数据
@@ -366,7 +368,7 @@ def generate_structured_csv(metric1_results: Dict[str, Dict[str, Dict[str, float
     
     # 添加表头行1: 数据库类型
     header_row1 = ['LLM']
-    for db in ['SQLite', 'PostgreSQL', 'ClickHouse']:
+    for db in ['SQLite', 'PostgreSQL', 'ClickHouse', 'myscale']:
         header_row1.extend([db] + [''] * 3)
     header_row1.append('Average')
     rows.append(header_row1)
@@ -470,6 +472,10 @@ Directory Structure:
           bird/
               evaluation_report_gpt4.json
           ...
+      myscale/
+          bird/
+              evaluation_report_gpt4.json
+          ...
 
 Examples:
   # Generate structured CSV with default metrics (F1Score / nDCG@10)
@@ -491,7 +497,7 @@ Note: Model configuration is set in the script code (DEFAULT_MODEL_CONFIG).
     # Required argument
     parser.add_argument(
         '--results-dir',
-        default='/mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/results',
+        default='/mnt/DataFlow/ydw/Text2VectorSQL/Evaluation_Framework/results',
         help='Root directory containing results (structure: results_dir/db_type/dataset_type/evaluation_report_model.json)'
     )
     

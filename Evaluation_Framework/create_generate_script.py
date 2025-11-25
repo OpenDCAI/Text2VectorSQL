@@ -13,9 +13,9 @@ def generate_bash_script(backends, modes, datasets, model_names, model_paths):
     """
     
     # --- 常量定义 ---
-    base_path_template = "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/{backend}/results"
+    base_path_template = "/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/{backend}/results"
     output_path_template = "./results/{backend}/{dataset}"
-    config_path = "/mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/generate_config.yaml"
+    config_path = "/mnt/DataFlow/ydw/Text2VectorSQL/Evaluation_Framework/generate_config.yaml"
     output_script_name = "generate.sh"
 
     all_commands = []
@@ -76,7 +76,7 @@ def generate_bash_script(backends, modes, datasets, model_names, model_paths):
                             f'    --model_path "{model_path}" \\\n'
                             f'    --output "{output_path}" \\\n'
                             f'    --config "{config_path}" \\\n'
-                            f'    --tensor_parallel_size 4'
+                            f'    --tensor_parallel_size 1' ## 如果你有更多gpu可以修改这里
                         )
                         vllm_commands.append(command)
                         vllm_commands.append("")
@@ -114,8 +114,8 @@ if __name__ == '__main__':
     ]
 
     MODES = [
-        'api', 
-        # 'vllm'
+        # 'api', 
+        'vllm'
     ]
     
     DATASETS = [
@@ -143,64 +143,72 @@ if __name__ == '__main__':
     ]
     
     MODEL_PATHS = [
-        # '/mnt/b_public/data/ydw/model/OmniSQL-7B',
-        # '/mnt/b_public/data/ydw/model/OmniSQL-14B',
-        # '/mnt/b_public/data/ydw/model/OmniSQL-32B',
+        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step200',
+        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step400',
+        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step600',
+        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step800',
+        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step1000',
+        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step1200',
+        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step1600',
+
+        # '/mnt/DataFlow/ydw/model/OmniSQL-7B',
+        # '/mnt/DataFlow/ydw/model/OmniSQL-14B',
+        # '/mnt/DataFlow/ydw/model/OmniSQL-32B',
         # # Open-source LLMs (˜7B)
-        # '/mnt/b_public/data/ydw/model/deepseek-coder-6.7b-instruct',
-        # '/mnt/b_public/data/ydw/model/Qwen2.5-Coder-7B-Instruct',
-        # '/mnt/b_public/data/ydw/model/Qwen2.5-7B-Instruct',
-        # '/mnt/b_public/data/ydw/model/OpenCoder-8B-Instruct',
-        # '/mnt/b_public/data/ydw/model/Meta-Llama-3.1-8B-Instruct',
-        # # # #'/mnt/b_public/data/ydw/model/granite-8b-code-instruct-128k',
-        # # '/mnt/b_public/data/ydw/model/granite-3.1-8b-instruct',
+        # '/mnt/DataFlow/ydw/model/deepseek-coder-6.7b-instruct',
+        # '/mnt/DataFlow/ydw/model/Qwen2.5-Coder-7B-Instruct',
+        # '/mnt/DataFlow/ydw/model/Qwen2.5-7B-Instruct',
+        # '/mnt/DataFlow/ydw/model/OpenCoder-8B-Instruct',
+        # '/mnt/DataFlow/ydw/model/Meta-Llama-3.1-8B-Instruct',
+        # # # #'/mnt/DataFlow/ydw/model/granite-8b-code-instruct-128k',
+        # # '/mnt/DataFlow/ydw/model/granite-3.1-8b-instruct',
 
         # UniVectorSQL
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-LoRA-Step600',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-LoRA-Step800',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-LoRA-Step1100',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step1100',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step1400',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step1800',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step2100',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-Step2500',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-No_CoT_Step100',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-No_CoT_Step300',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-No_CoT_Step500',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-No_CoT_Step800',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-7B-No_CoT_Step1000',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step600',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step800',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step1100',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-Step1100',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-Step1400',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-Step1800',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-Step2100',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-Step2500',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-No_CoT_Step100',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-No_CoT_Step300',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-No_CoT_Step500',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-No_CoT_Step800',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-No_CoT_Step1000',
 
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step200',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step400',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step600',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step900',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step1000',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-LoRA-Step1100',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step500',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step1000',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-No_CoT-Step1500',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step500',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step1000',
-        # '/mnt/b_public/data/ydw/model/UniVectorSQL-14B-Step1500',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step200',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step400',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step600',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step900',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step1000',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step1100',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-No_CoT-Step500',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-No_CoT-Step1000',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-No_CoT-Step1500',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-Step500',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-Step1000',
+        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-Step1500',
 
 
         # ## Open-source LLMs (14B-32B)
-        # '/mnt/b_public/data/ydw/model/Qwen2.5-Coder-14B-Instruct',
-        # '/mnt/b_public/data/ydw/model/Qwen2.5-14B-Instruct',
-        # '/mnt/b_public/data/ydw/model/starcoder2-15b-instruct-v0.1',
-        # '/mnt/b_public/data/ydw/model/DeepSeek-Coder-V2-Lite-Instruct',
-        # '/mnt/b_public/data/ydw/model/granite-20b-code-instruct-8k',
-        # '/mnt/b_public/data/ydw/model/Codestral-22B-v0.1',
+        # '/mnt/DataFlow/ydw/model/Qwen2.5-Coder-14B-Instruct',
+        # '/mnt/DataFlow/ydw/model/Qwen2.5-14B-Instruct',
+        # '/mnt/DataFlow/ydw/model/starcoder2-15b-instruct-v0.1',
+        # '/mnt/DataFlow/ydw/model/DeepSeek-Coder-V2-Lite-Instruct',
+        # '/mnt/DataFlow/ydw/model/granite-20b-code-instruct-8k',
+        # '/mnt/DataFlow/ydw/model/Codestral-22B-v0.1',
 
         # # # ## Open-source LLMs (≥ 32B)
-        # '/mnt/b_public/data/ydw/model/Qwen2.5-Coder-32B-Instruct',
-        # # # #'/mnt/b_public/data/ydw/model/Qwen2.5-32B-Instruct',  api
-        # '/mnt/b_public/data/ydw/model/deepseek-coder-33b-instruct',
-        # # '/mnt/b_public/data/ydw/model/granite-34b-code-instruct-8k',
-        # '/mnt/b_public/data/ydw/model/Mixtral-8x7B-Instruct-v0.1',
-        # '/mnt/b_public/data/ydw/model/Meta-Llama-3.1-70B-Instruct',
-        # # # # '/mnt/b_public/data/ydw/model/Qwen2.5-72B-Instruct', api
-        # # # # '/mnt/b_public/data/ydw/model/DeepSeek-V3 (671B, MoE)', api
+        # '/mnt/DataFlow/ydw/model/Qwen2.5-Coder-32B-Instruct',
+        # # # #'/mnt/DataFlow/ydw/model/Qwen2.5-32B-Instruct',  api
+        # '/mnt/DataFlow/ydw/model/deepseek-coder-33b-instruct',
+        # # '/mnt/DataFlow/ydw/model/granite-34b-code-instruct-8k',
+        # '/mnt/DataFlow/ydw/model/Mixtral-8x7B-Instruct-v0.1',
+        # '/mnt/DataFlow/ydw/model/Meta-Llama-3.1-70B-Instruct',
+        # # # # '/mnt/DataFlow/ydw/model/Qwen2.5-72B-Instruct', api
+        # # # # '/mnt/DataFlow/ydw/model/DeepSeek-V3 (671B, MoE)', api
     ]
 
     # --- 运行主函数 ---
