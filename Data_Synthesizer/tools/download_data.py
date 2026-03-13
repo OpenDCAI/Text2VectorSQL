@@ -1,76 +1,64 @@
 import os
-from huggingface_hub import snapshot_download, hf_hub_download
+import tarfile
+from huggingface_hub import snapshot_download
 
-# 配置
-REPO_ID = "dongwenyao/Text2vecsql_data"
+# ================= 配置区 =================
+REPO_ID = "dongwenyao/text2vecsql_zip"
 REPO_TYPE = "dataset"
+# 假设脚本在 Data_Synthesizer/tools 下，项目根目录就是脚本的上一级
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# ==========================================
 
-# 定义可选的下载模块
-# 格式：{ "显示名称": "远程与本地对应的路径" }
-DATA_MAP = {
-    "1": ("database_synthesis/results", "Database Synthesis Results"),
-    "2": ("database_synthesis/synthesis_data", "Database Synthesis Data"),
-    "3": ("pipeline/sqlite/train", "SQLite Train Data"),
-    "4": ("pipeline/sqlite/results", "SQLite Results"),
-    "5": ("pipeline/sqlite/prompts", "SQLite Prompts"),
-    "6": ("pipeline/postgresql/prompts", "PostgreSQL Prompts"),
-    "7": ("pipeline/postgresql/results", "PostgreSQL Results"),
-    "8": ("pipeline/myscale/prompts", "MyScale Prompts"),
-    "9": ("pipeline/myscale/results", "MyScale Results"),
-    "10": ("pipeline/clickhouse/prompts", "ClickHouse Prompts"),
-    "11": ("pipeline/clickhouse/results", "ClickHouse Results"),
-    "12": ("tools/results/collected_input_llm.json", "Collected Input LLM (Single File)"),
-}
+def decompress_tar_gz(file_path, extract_path):
+    """解压 tar.gz 文件到指定目录并删除原文件"""
+    print(f"📦 正在解压: {file_path}")
+    try:
+        with tarfile.open(file_path, "r:gz") as tar:
+            tar.extractall(path=extract_path)
+        print(f"✅ 解压成功: {extract_path}")
+        
+        # 解压成功后删除压缩包
+        os.remove(file_path)
+        print(f"🗑️ 已清理压缩包: {os.path.basename(file_path)}")
+        return True
+    except Exception as e:
+        print(f"❌ 解压失败 {file_path}: {e}")
+        return False
 
 def main():
-    # 1. 确定项目根目录 (tools 的上一级)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(current_dir, ".."))
+    print(f"🚀 开始从 Hugging Face 下载仓库: {REPO_ID}")
     
-    print(f"🚀 目标项目根目录: {project_root}")
-    print("请选择要下载的内容 (输入数字，多个请用逗号隔开，输入 'all' 下载全部):")
+    # 1. 下载整个 Data_Synthesizer 目录
+    # local_dir 指定为项目根目录，snapshot_download 会自动处理子目录结构
+    try:
+        download_path = snapshot_download(
+            repo_id=REPO_ID,
+            repo_type=REPO_TYPE,
+            local_dir=PROJECT_ROOT,
+            allow_patterns="Data_Synthesizer/*",
+            local_dir_use_symlinks=False
+        )
+        print(f"✅ 下载完成，存放在: {download_path}")
+    except Exception as e:
+        print(f"❌ 下载失败: {e}")
+        return
+
+    # 2. 遍历下载后的目录，寻找 .tar.gz 文件进行还原
+    print("\n🔍 正在扫描压缩文件并还原目录结构...")
     
-    for key, value in DATA_MAP.items():
-        print(f"[{key}] {value[1]} ({value[0]})")
+    for root, dirs, files in os.walk(PROJECT_ROOT):
+        for file in files:
+            if file.endswith(".tar.gz"):
+                full_file_path = os.path.join(root, file)
+                
+                # 你的上传逻辑中，压缩包内包含了目标文件夹本身
+                # 例如：pipeline/sqlite/train.tar.gz 解压后会自动生成 train/ 文件夹
+                # 所以解压路径应该是该压缩包所在的父目录
+                extract_target_dir = root 
+                
+                decompress_tar_gz(full_file_path, extract_target_dir)
 
-    user_input = input("\n请输入编号: ").strip().lower()
-    
-    selected_keys = []
-    if user_input == 'all':
-        selected_keys = list(DATA_MAP.keys())
-    else:
-        selected_keys = [k.strip() for k in user_input.split(',')]
-
-    for key in selected_keys:
-        if key not in DATA_MAP:
-            print(f"⚠️ 跳过无效编号: {key}")
-            continue
-        
-        rel_path, description = DATA_MAP[key]
-        print(f"\n正在下载: {description}...")
-
-        # 判断是文件还是文件夹
-        # 你的脚本中，除了最后一个是 .json，其余都是文件夹
-        if rel_path.endswith('.json'):
-            # 下载单个文件
-            hf_hub_download(
-                repo_id=REPO_ID,
-                filename=f"Data_Synthesizer/{rel_path}",
-                repo_type=REPO_TYPE,
-                local_dir=project_root,
-                local_dir_use_symlinks=False
-            )
-        else:
-            # 下载文件夹
-            snapshot_download(
-                repo_id=REPO_ID,
-                repo_type=REPO_TYPE,
-                allow_patterns=f"Data_Synthesizer/{rel_path}/*",
-                local_dir=project_root,
-                local_dir_use_symlinks=False
-            )
-            
-    print("\n✅ 下载任务完成！")
+    print("\n🎊 恭喜！所有数据已还原，环境清理完毕。")
 
 if __name__ == "__main__":
     main()

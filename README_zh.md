@@ -236,6 +236,15 @@ Text2VectorSQL旨在弥合这一“根本差距”，我们提供了一个全面
       * **分解指标 (Decomposed)**: $ACC_{SQL}$ (SQL骨架正确性) 和 $ACC_{Vec}$ (向量部分正确性) 。
 4.  **结果聚合 (`aggregate_results.py`)**: 将多个实验的 JSON 报告汇总为易于比较的 CSV 文件。
 
+**数据下载**：
+
+如果你认为自己合成训练数据并且训练模型太过浪费时间和token，或者你希望直接获取数据库和模型进行测试。那么你可以执行：
+```bash
+cd Data_Synthesizer/tools
+python download_data.py
+python download_model.py
+```
+来下载你所需要对应合成步骤的数据或者模型。
 <!-- ## 📖 Citation -->
 ## 📖 文献引用
 
