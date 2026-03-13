@@ -34,3 +34,10 @@ tail -f /tmp/pg_logfile.log
 # 尝试连接（默认端口通常是 5432）
 psql -h localhost -p 5432 -d postgres
 ```
+
+# 下载需要的数据
+运行：
+```bash
+python download_data.py
+```
+然后根据提示下载你所需要的数据
