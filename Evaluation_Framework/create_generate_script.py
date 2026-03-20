@@ -13,9 +13,9 @@ def generate_bash_script(backends, modes, datasets, model_names, model_paths):
     """
     
     # --- 常量定义 ---
-    base_path_template = "/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/{backend}/results"
+    base_path_template = "../Data_Synthesizer/pipeline/{backend}/results"
     output_path_template = "./results/{backend}/{dataset}"
-    config_path = "/mnt/DataFlow/ydw/Text2VectorSQL/Evaluation_Framework/generate_config.yaml"
+    config_path = "./generate_config.yaml"
     output_script_name = "generate.sh"
 
     all_commands = []

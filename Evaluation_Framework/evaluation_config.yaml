@@ -24,7 +24,7 @@ engine_config_path: Execution_Engine/engine_config.yaml
 db_type: 'sqlite'
 
 #待测评的数据的文件路径
-eval_data_file: /mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/input_output.json
+eval_data_file: ./test_data/input_output.json
 
 
 

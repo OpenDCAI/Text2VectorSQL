@@ -40,4 +40,4 @@ psql -h localhost -p 5432 -d postgres
 ```bash
 python download_data.py
 ```
-然后根据提示下载你所需要的数据
+这个文件可以下载所有需要的数据和运行程序所需要的embedding模型到对应目录，然后就可以直接进行测试了

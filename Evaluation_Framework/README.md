@@ -79,3 +79,14 @@
 ```bash
 pip install -r requirements.txt
 ```
+
+# 批量测试
+我们提供了脚本create_generate_script.py和create_eval_script.py，你可以修改其中的参数生成需要的批量测试bash脚本，然后进行批量测试。
+DATABASE_BACKENDS参数控制你希望测试的数据库后端，MODES参数支持你使用大模型的api或者vllm模型，DATASETS是你想要测试的本地测试集（你需要提前生成或者下载），MODEL_NAMES为你的base_url中支持的模型名称，MODEL_PATHS为你的vllm模型地址。
+示例：
+```bash
+python create_generate_script.py
+bash generate.sh
+python create_eval_script.py
+bash run_evaluation.sh
+```
