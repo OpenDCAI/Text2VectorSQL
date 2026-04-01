@@ -12,8 +12,8 @@ import sys
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # 只需要修改这里，就可以加载不同的数据集配置！
-DATASET_BACKEND = "postgresql" # "myscale" "clickhouse" "postgresql" 
-DATASET_TO_LOAD = "arxiv" # "arxiv" "wikipedia_multimodal" "bird" "spider"
+DATASET_BACKEND = "sqlite" # "sqlite" "myscale" "clickhouse" "postgresql"
+DATASET_TO_LOAD = "test" # "test" "arxiv" "wikipedia_multimodal" "bird" "spider"
 # "synthesis_data"用于训练集
 # DATASET_TO_LOAD = "bird" # 例如，切换到bird数据集
 
@@ -237,38 +237,38 @@ def main():
 
 
 
-    # print("################################################")
-    # print("为向量数据库更新schema，并且添加ddls字段，便于生成cot")
-    # generate_vector_schema(config.paths.vector_db_root,config.paths.find_semantic_table_json,config.paths.schema_output_dir,config.paths.schema_output_json)
+    print("################################################")
+    print("为向量数据库更新schema，并且添加ddls字段，便于生成cot")
+    generate_vector_schema(config.paths.vector_db_root,config.paths.find_semantic_table_json,config.paths.schema_output_dir,config.paths.schema_output_json)
 
-    # print("################################################")
-    # print("生成合成sql提示词")
-    # main_generate_sql_synthesis_prompts(config.paths.vector_db_root,config.paths.prompt_tpl_path,config.paths.functions_path,config.paths.sql_prompts_output_dir,config.paths.sql_prompts_output_name,config.services.openai.get('embedding_model_name'),config.parameters.sql_number)
+    print("################################################")
+    print("生成合成sql提示词")
+    main_generate_sql_synthesis_prompts(config.paths.vector_db_root,config.paths.prompt_tpl_path,config.paths.functions_path,config.paths.sql_prompts_output_dir,config.paths.sql_prompts_output_name,config.services.openai.get('embedding_model_name'),config.parameters.sql_number)
 
-    # print("################################################")
-    # print("合成sql")
-    # run_sql_synthesis(config.paths.synthesize_sql_input_file,config.paths.synthesize_sql_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.paths.cache_file_path_sql,config.parameters.max_workers)
+    print("################################################")
+    print("合成sql")
+    run_sql_synthesis(config.paths.synthesize_sql_input_file,config.paths.synthesize_sql_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.paths.cache_file_path_sql,config.parameters.max_workers)
 
-    # print("################################################")   
-    # print("过滤可以成功运行的sql")
-    # post_process_sqls(config.paths.vector_db_root,config.paths.post_sql_output_path,config.paths.post_sql_llm_json_path,config.services.embed.get('api_url'),config.services.openai.get('embedding_model_name'),config.parameters.num_cpus,config.parameters.sql_exec_timeout)
+    print("################################################")
+    print("过滤可以成功运行的sql")
+    post_process_sqls(config.paths.vector_db_root,config.paths.post_sql_output_path,config.paths.post_sql_llm_json_path,config.services.embed.get('api_url'),config.services.openai.get('embedding_model_name'),config.parameters.num_cpus,config.parameters.sql_exec_timeout)
 
-    # print("################################################")
-    # print("生成合成question提示词")
-    # sqlite_generate_question_synthesis_prompts(config.paths.vector_db_root,config.paths.sql_infos_path,config.paths.question_synthesis_template_path,config.paths.question_prompts_output_json_path)
+    print("################################################")
+    print("生成合成question提示词")
+    sqlite_generate_question_synthesis_prompts(config.paths.vector_db_root,config.paths.sql_infos_path,config.paths.question_synthesis_template_path,config.paths.question_prompts_output_json_path)
 
-    # print("################################################")
-    # print("合成question")
-    # synthesize_questions(config.paths.synthesize_question_input_file,config.paths.synthesize_question_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.max_workers,config.paths.cache_file_path_question)
+    print("################################################")
+    print("合成question")
+    synthesize_questions(config.paths.synthesize_question_input_file,config.paths.synthesize_question_output_file,config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.max_workers,config.paths.cache_file_path_question)
 
-    # print("################################################")
-    # print("多数投票表决选取合适的question")
-    # post_process_questions(config.paths.post_process_questions_input_dataset_path,config.paths.post_process_questions_output_file,config.services.embed.get('api_url'),config.services.openai.get('embedding_model_name'))
+    print("################################################")
+    print("多数投票表决选取合适的question")
+    post_process_questions(config.paths.post_process_questions_input_dataset_path,config.paths.post_process_questions_output_file,config.services.embed.get('api_url'),config.services.openai.get('embedding_model_name'))
 
-    # print("################################################")
-    # print("为每个问题生成多个sql候选")
-    # synthesize_candidate(config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.num_candidates,config.parameters.max_workers,config.paths.synthesiaze_candidate_input_file,config.paths.synthesiaze_candidate_output_file)
-    # print("如果发现结果少了,可能是执行过快,这里要重新执行一遍")
+    print("################################################")
+    print("为每个问题生成多个sql候选")
+    synthesize_candidate(config.services.openai.get('llm_model_name'),config.services.openai.get('api_key'),config.services.openai.get('base_url'),config.parameters.num_candidates,config.parameters.max_workers,config.paths.synthesiaze_candidate_input_file,config.paths.synthesiaze_candidate_output_file)
+    print("如果发现结果少了,可能是执行过快,这里要重新执行一遍")
 
 
 

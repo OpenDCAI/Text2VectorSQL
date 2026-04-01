@@ -51,6 +51,10 @@ db_type: 'sqlite'
 
 # Path to the evaluation data file containing predicted SQL and ground truth.
 # The default file (test_data/input_output.json) contains only 10 debug cases.
+# NOTE: The default test data references the 'company_1' database from the Spider
+# dataset, NOT the test/ dataset. You must override base_dir to point to
+# spider/vector_databases when using this file:
+#   python run_eval_pipeline.py --all --base_dir ../Data_Synthesizer/pipeline/sqlite/results/spider/vector_databases
 # For real evaluation, use the output from generate.py or download from HuggingFace.
 # See: python Data_Synthesizer/tools/download_data.py
 eval_data_file: ./test_data/input_output.json

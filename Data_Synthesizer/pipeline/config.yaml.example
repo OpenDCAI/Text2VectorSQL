@@ -9,16 +9,16 @@ sqlite:
     services: &common_services
       vllm:
         api_url: "http://127.0.0.1:8000/v1"
-        model_name: "/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct"
+        model_name: "Qwen/Qwen2.5-72B-Instruct"
       
       openai:
         api_key: &common_api_key "sk-xxxxx"
-        base_url: "http://123.129.219.111:3000/v1"
+        base_url: "https://api.openai.com/v1"
         llm_model_name: "gpt-4o"
         embedding_model_name: "all-MiniLM-L6-v2"
 
       embed:
-        api_url: "http://127.0.0.1:8000/embed"
+        api_url: "http://127.0.0.1:8333/embed"
 
     # ------------------------------------------------------------------
     # 路径配置 - 在这里使用锚点 (&) 定义一个可复用的代码块
@@ -32,7 +32,7 @@ sqlite:
       vector_db_root: "sqlite/results/{dataset}/vector_databases"
       find_semantic_table_json: "sqlite/results/{dataset}/find_semantic_tables.json"
       find_semantic_prompt_template_path: "sqlite/prompt_templates/find_semantic_rich_column.txt"
-      model_download: '/mnt/b_public/data/yaodongwen/model'
+      model_download: 'cache/model'
       cache_file: "sqlite/cache/{dataset}/disk_cache"
       original_schema: "sqlite/results/{dataset}/find_semantic_tables.json"
       schema_output_dir: "sqlite/results/{dataset}"
@@ -115,7 +115,7 @@ sqlite:
       vector_db_root: "sqlite/results/{dataset}/vector_databases"
       find_semantic_table_json: "sqlite/results/{dataset}/find_semantic_tables.json"
       find_semantic_prompt_template_path: "sqlite/prompt_templates/find_semantic_rich_column.txt"
-      model_download: '/mnt/b_public/data/yaodongwen/model'
+      model_download: 'cache/model'
       cache_file: "sqlite/cache/{dataset}/disk_cache"
       original_schema: "sqlite/results/{dataset}/find_semantic_tables.json"
       schema_output_dir: "sqlite/results/{dataset}"
@@ -232,11 +232,11 @@ sqlite:
     services: &wiki_services
       vllm:
         api_url: "http://127.0.0.1:8000/v1"
-        model_name: "/mnt/b_public/data/ydw/model/Qwen/Qwen2.5-72B-Instruct"
+        model_name: "Qwen/Qwen2.5-72B-Instruct"
       
       openai:
         api_key: *common_api_key
-        base_url: "http://123.129.219.111:3000/v1"
+        base_url: "https://api.openai.com/v1"
         llm_model_name: "gpt-4o"
         embedding_model_name: "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
     
@@ -251,7 +251,7 @@ sqlite:
       find_semantic_prompt_template_path: "sqlite/prompt_templates/find_semantic_rich_column.txt"
       cache_file_path_sql: "sqlite/cache/{dataset}/disk_cache/disk_cache_sql.jsonl"
       EMBED_MODEL_PATH_CACHE: "cache/model"
-      model_download: '/mnt/b_public/data/yaodongwen/model'
+      model_download: 'cache/model'
       cache_file: "sqlite/cache/{dataset}/disk_cache"
       original_schema: "sqlite/results/{dataset}/find_semantic_tables.json"
       schema_output_dir: "sqlite/results/{dataset}"

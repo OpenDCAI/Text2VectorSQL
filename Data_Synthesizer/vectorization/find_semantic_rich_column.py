@@ -190,7 +190,7 @@ if __name__ == '__main__':
         logger.error(f"错误：以下必须的环境变量未在 .env 文件中设置: {', '.join(missing_vars)}")
         exit(1)
     # 选填参数（带默认值）(已更新)
-    api_url = os.getenv("BASE_URL", "http://123.129.219.111:3000/v1")
+    api_url = os.getenv("BASE_URL", "https://api.openai.com/v1")
     input_file = os.getenv("INPUT_FILE_FIND_SEMANTIC_RICH", "./results/enhanced_train_tables.json")
     output_file = os.getenv("OUTPUT_FILE_FIND_SEMANTIC_RICH", "./results/find_semantic_tables.json")
     # 处理布尔值参数

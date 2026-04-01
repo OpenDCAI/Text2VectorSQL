@@ -86,7 +86,7 @@ if __name__ == "__main__":
     # --- 请修改这里的路径 ---
     # Windows 示例: "C:\\Users\\YourUser\\Desktop\\my_databases"
     # macOS/Linux 示例: "/Users/youruser/Documents/my_databases"
-    target_directory = "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data_deversity/vector_databases"  # <--- 修改这里为你需要处理的目录路径！
+    target_directory = "../pipeline/sqlite/results/synthesis_data/vector_databases"  # <--- 修改这里为你需要处理的目录路径！
 
     # 运行主函数
     add_prefix_to_dirs_and_files(target_directory)

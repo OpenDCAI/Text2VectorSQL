@@ -149,7 +149,7 @@ Create a configuration file `Embedding_Service/config.yaml`:
 # config.yaml
 server:
   host: "0.0.0.0"
-  port: 8000
+  port: 8333
 
 models:
   - name: "all-MiniLM-L6-v2"
@@ -161,7 +161,7 @@ models:
 
 **Configuration Options:**
 - `server.host`: Server host address (use "0.0.0.0" for all interfaces)
-- `server.port`: Server port (default: 8000)
+- `server.port`: Server port (default: 8333)
 - `models`: List of embedding models to load
   - `name`: Model identifier used in queries
   - `hf_model_path`: Hugging Face model path
@@ -183,7 +183,7 @@ INFO:     Waiting for application startup.
 INFO:     Loading model: all-MiniLM-L6-v2
 INFO:     Model loaded successfully
 INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Uvicorn running on http://0.0.0.0:8333
 ```
 
 **First Run**: Models will be downloaded from Hugging Face (may take several minutes depending on your internet speed).
@@ -192,7 +192,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 **Health Check:**
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8333/health
 ```
 
 **Expected Response:**
@@ -205,7 +205,7 @@ curl http://localhost:8000/health
 
 **Get Text Embeddings:**
 ```bash
-curl -X POST http://localhost:8000/embed \
+curl -X POST http://localhost:8333/embed \
   -H "Content-Type: application/json" \
   -d '{
     "model": "all-MiniLM-L6-v2",
@@ -273,7 +273,7 @@ Create `Execution_Engine/engine_config.yaml`:
 ```yaml
 # Embedding Service Configuration
 embedding_service:
-  url: "http://127.0.0.1:8000/embed"
+  url: "http://127.0.0.1:8333/embed"
 
 # Database Connection Settings
 database_connections:
@@ -402,6 +402,12 @@ The project includes test data in `Evaluation_Framework/test_data/input_output.j
 >
 > The default `evaluation_config.yaml` uses the `test/` dataset (only 2 databases, 10 cases) for quick sanity checks. **For real evaluation, change `base_dir` to point to `spider/`, `bird/`, or other benchmark datasets.**
 >
+> **Note**: The default test data file (`test_data/input_output.json`) references the `company_1` database, which is part of the **Spider** dataset, not the `test/` dataset. To run the default evaluation, you must point `base_dir` to the Spider vector databases:
+> ```bash
+> python run_eval_pipeline.py --all --config evaluation_config.yaml \
+>   --base_dir ../Data_Synthesizer/pipeline/sqlite/results/spider/vector_databases
+> ```
+>
 > To download all datasets:
 > ```bash
 > cd Data_Synthesizer/tools
@@ -447,7 +453,7 @@ evaluation_report_file: evaluation_report.json
 embedding_service:
   auto_manage: false  # Set to true to auto-start service
   host: "127.0.0.1"
-  port: 8000
+  port: 8333
   models:
     - name: "all-MiniLM-L6-v2"
       hf_model_path: "sentence-transformers/all-MiniLM-L6-v2"
@@ -610,38 +616,44 @@ The Data Synthesizer generates training data for Text2VectorSQL models through a
 
 #### 4.2 Configuration
 
-Create `Data_Synthesizer/pipeline/config.yaml`:
+The configuration file uses a nested structure organized by database backend and dataset name. Create or edit `Data_Synthesizer/pipeline/config.yaml`:
 
 ```yaml
-# LLM API Configuration
-llm:
-  api_key: "your-openai-api-key"
-  base_url: "https://api.openai.com/v1"
-  model: "gpt-4"
-  temperature: 0.7
-  max_tokens: 2048
+sqlite:
+  test:   # Dataset name - change to "spider", "bird", etc. for other datasets
+    services:
+      openai:
+        api_key: "your-openai-api-key"
+        base_url: "https://api.openai.com/v1"
+        llm_model_name: "gpt-4o"
+        embedding_model_name: "all-MiniLM-L6-v2"
 
-# Embedding Model Configuration
-embedding:
-  model_name: "all-MiniLM-L6-v2"
-  batch_size: 32
+      embed:
+        api_url: "http://127.0.0.1:8333/embed"  # Local Embedding Service
 
-# Pipeline Configuration
-pipeline:
-  # Source dataset
-  source_dataset: "wikitables"  # or "spider", "bird"
-  
-  # Output paths
-  result_path: "./results"
-  
-  # Synthesis settings
-  num_samples: 100
-  complexity_levels: ["simple", "moderate", "challenging"]
-  
-# Database Backend
-database:
-  type: "sqlite"  # or "postgresql", "clickhouse"
+    paths:
+      # Key paths (see config.yaml.example for the full list)
+      result_path: "sqlite/results/{dataset}"
+      vector_db_root: "sqlite/results/{dataset}/vector_databases"
+      sql_prompts_output_dir: "sqlite/prompts/{dataset}"
+      synthesize_sql_output_file: "sqlite/results/{dataset}/sql_synthesis.json"
+      cache_file_path_sql: "sqlite/cache/{dataset}/disk_cache/disk_cache_sql.jsonl"
+      # ... (see config.yaml.example for all ~40 path configurations)
+
+    parameters:
+      dataset_backend: "sqlite"
+      max_workers: 4            # Parallel LLM API threads
+      sql_number: 2             # SQLs per semantic column (controls dataset size)
+      num_candidates: 3         # Alternative SQLs per question
+      sql_exec_timeout: 60      # SQL execution timeout (seconds)
 ```
+
+**Key Parameters:**
+- `sql_number`: Controls how many SQLs are generated per embedding column. This is the most important parameter for dataset size. With `sql_number=2` and ~16 embedding columns, you get ~32 raw SQLs, ~20 after filtering.
+- `max_workers`: Number of parallel LLM API calls. Increase for faster generation, decrease to avoid rate limits.
+- `{dataset}` in paths is automatically replaced with the dataset name (e.g., "test").
+
+See `Data_Synthesizer/pipeline/config.yaml.example` for the complete configuration with all path definitions.
 
 #### 4.3 Download Pre-synthesized Data (Recommended)
 
@@ -671,7 +683,12 @@ cd Data_Synthesizer
 python pipeline/general_pipeline.py
 ```
 
-**Note**: Full synthesis can be time-consuming and expensive (requires many LLM API calls).
+**Important**: Before running, edit `general_pipeline.py` to:
+1. Set `DATASET_BACKEND` and `DATASET_TO_LOAD` at the top of the file (e.g., `"sqlite"` and `"test"`).
+2. Uncomment the pipeline stages you want to run. The stages are clearly labeled with `print("################################################")` comments.
+3. If your vector databases are already built (provided with the project), you can skip the vectorization stages and start from SQL synthesis.
+
+**Note**: Full synthesis can be time-consuming and expensive (requires many LLM API calls). For the `test` dataset with `sql_number=2`, expect ~76 API calls and ~5 minutes.
 
 #### 4.5 Synthesis Stages
 
@@ -754,11 +771,11 @@ cat summary.csv
 
 #### Issue 1: Embedding Service Connection Error
 
-**Error**: `Connection refused to http://localhost:8000`
+**Error**: `Connection refused to http://localhost:8333`
 
 **Solution**:
 - Ensure Embedding Service is running
-- Check if port 8000 is available
+- Check if port 8333 is available
 - Verify firewall settings
 - Try using `127.0.0.1` instead of `localhost`
 
@@ -1105,7 +1122,7 @@ pip install --upgrade sqlite-vec sqlite-lembed
 # config.yaml
 server:
   host: "0.0.0.0"
-  port: 8000
+  port: 8333
 
 models:
   - name: "all-MiniLM-L6-v2"
@@ -1117,7 +1134,7 @@ models:
 
 **配置选项：**
 - `server.host`：服务器主机地址（使用"0.0.0.0"监听所有接口）
-- `server.port`：服务器端口（默认：8000）
+- `server.port`：服务器端口（默认：8333）
 - `models`：要加载的嵌入模型列表
   - `name`：查询中使用的模型标识符
   - `hf_model_path`：Hugging Face模型路径
@@ -1139,7 +1156,7 @@ INFO:     Waiting for application startup.
 INFO:     Loading model: all-MiniLM-L6-v2
 INFO:     Model loaded successfully
 INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Uvicorn running on http://0.0.0.0:8333
 ```
 
 **首次运行**：模型将从Hugging Face下载（根据网速可能需要几分钟）。
@@ -1148,7 +1165,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 **健康检查：**
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8333/health
 ```
 
 **预期响应：**
@@ -1161,7 +1178,7 @@ curl http://localhost:8000/health
 
 **获取文本嵌入：**
 ```bash
-curl -X POST http://localhost:8000/embed \
+curl -X POST http://localhost:8333/embed \
   -H "Content-Type: application/json" \
   -d '{
     "model": "all-MiniLM-L6-v2",
@@ -1205,7 +1222,7 @@ python server.py --config config.yaml
 ```yaml
 # 嵌入服务配置
 embedding_service:
-  url: "http://127.0.0.1:8000/embed"
+  url: "http://127.0.0.1:8333/embed"
 
 # 数据库连接设置
 database_connections:
@@ -1318,6 +1335,12 @@ else:
 >
 > 默认 `evaluation_config.yaml` 使用 `test/` 数据集（仅2个数据库、10个样例），仅供快速验证。**进行正式评测时，请将 `base_dir` 改为指向 `spider/`、`bird/` 等基准数据集。**
 >
+> **注意**：默认测试数据文件 (`test_data/input_output.json`) 引用的是 `company_1` 数据库，该数据库属于 **Spider** 数据集，而非 `test/` 数据集。运行默认评估时，必须将 `base_dir` 指向 Spider 向量数据库：
+> ```bash
+> python run_eval_pipeline.py --all --config evaluation_config.yaml \
+>   --base_dir ../Data_Synthesizer/pipeline/sqlite/results/spider/vector_databases
+> ```
+>
 > 下载所有数据集：
 > ```bash
 > cd Data_Synthesizer/tools
@@ -1348,7 +1371,7 @@ evaluation_report_file: evaluation_report.json
 embedding_service:
   auto_manage: false
   host: "127.0.0.1"
-  port: 8000
+  port: 8333
 
 # 评估指标
 metrics:
@@ -1457,7 +1480,14 @@ cd Data_Synthesizer
 python pipeline/general_pipeline.py
 ```
 
-**注意**：完整合成可能耗时且昂贵（需要大量LLM API调用）。
+**重要**：运行前请编辑 `general_pipeline.py`：
+1. 在文件顶部设置 `DATASET_BACKEND` 和 `DATASET_TO_LOAD`（如 `"sqlite"` 和 `"test"`）。
+2. 取消注释你要运行的流水线阶段。各阶段用 `print("################################################")` 标注。
+3. 如果向量数据库已存在（项目已提供），可跳过向量化阶段，直接从 SQL 合成开始。
+
+配置文件使用嵌套结构，按数据库后端和数据集名称组织。请参考 `config.yaml.example` 获取完整路径配置。
+
+**注意**：完整合成可能耗时且昂贵（需要大量LLM API调用）。对于 `test` 数据集（`sql_number=2`），预计约 76 次 API 调用、约 5 分钟。
 
 ---
 
@@ -1520,11 +1550,11 @@ cat summary.csv
 
 #### 问题1：嵌入服务连接错误
 
-**错误**：`Connection refused to http://localhost:8000`
+**错误**：`Connection refused to http://localhost:8333`
 
 **解决方案**：
 - 确保嵌入服务正在运行
-- 检查端口8000是否可用
+- 检查端口8333是否可用
 - 验证防火墙设置
 - 尝试使用`127.0.0.1`而不是`localhost`
 

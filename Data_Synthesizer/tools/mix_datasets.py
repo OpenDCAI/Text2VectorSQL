@@ -156,8 +156,8 @@ if __name__ == "__main__":
     
     # 1. 输入文件路径
     # 脚本会自动识别哪个是.json，哪个是.jsonl
-    FILE_1_PATH = "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data_deversity/input_llm.json"
-    FILE_2_PATH = "/mnt/b_public/data/ydw/datasets/input_llm.jsonl"
+    FILE_1_PATH = "../pipeline/sqlite/results/synthesis_data/input_llm.json"
+    FILE_2_PATH = "./input_llm.jsonl"
 
     # 2. 输出目录
     OUTPUT_DIR = "./results/mixed_datasets"

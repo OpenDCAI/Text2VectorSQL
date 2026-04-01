@@ -135,7 +135,7 @@ def parse_arguments():
         """
     )
     
-    parser.add_argument('--config', type=str,default='/mnt/b_public/data/ydw/Text2VectorSQL/Evaluation_Framework/generate_config.yaml', help='YAML 配置文件路径')
+    parser.add_argument('--config', type=str,default='generate_config.yaml', help='YAML 配置文件路径')
     
     # 通用参数
     parser.add_argument('--mode', type=str, choices=['vllm', 'api'], help='生成模式: vllm (离线推理) 或 api (在线调用)')

@@ -12,7 +12,7 @@ def process_large_json(input_path, output_path):
         output_path (str): 输出的JSON文件路径。
     """
     # 路径的前缀
-    prefix = "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data_deversity/vector_databases/"
+    prefix = "../pipeline/sqlite/results/synthesis_data/vector_databases/"
     
     # 以二进制模式读取输入文件，以文本模式写入输出文件
     with open(input_path, 'rb') as f_in, open(output_path, 'w', encoding='utf-8') as f_out:

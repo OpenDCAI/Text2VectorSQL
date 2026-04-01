@@ -1,0 +1,23 @@
+# GPT-4o Spider evaluation config
+mode: api
+dataset: ../Data_Synthesizer/pipeline/sqlite/results/spider/input_llm.json
+output: ./gpt4o_spider_predictions.json
+
+# API config
+api_url: "https://api.openai.com/v1/chat/completions"
+api_key: "your-api-key-here"
+model_name: "gpt-4o"
+
+# Concurrency and timeout
+num_threads: 8
+api_timeout: 120
+retry_times: 3
+
+# Sampling
+max_tokens: 2048
+temperature: 0.0
+top_p: 1.0
+
+# Cache
+cache_dir: cache
+open_cache: true

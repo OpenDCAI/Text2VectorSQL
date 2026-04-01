@@ -156,12 +156,12 @@ def main_batch_vectorize_databases(
         logging.info("--- Batch Vectorization Process Completed ---")
 
 if __name__ == '__main__':
-    SOURCE_DB_ROOT = "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/train/arxiv"
+    SOURCE_DB_ROOT = "../pipeline/sqlite/train/test"
     SQL_SCRIPT_DIR = "./vector_sql"
     VECTOR_DB_ROOT = "./vector_databases"
-    TABLE_JSON_PATH = '/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/arxiv/find_semantic_tables.json'
+    TABLE_JSON_PATH = '../pipeline/sqlite/results/test/find_semantic_tables.json'
     EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
-    model_path = "/mnt/b_public/data/yaodongwen/model"
+    model_path = "cache/model"
     main_batch_vectorize_databases(
         SOURCE_DB_ROOT,
         SQL_SCRIPT_DIR,

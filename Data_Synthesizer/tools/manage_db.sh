@@ -1,4 +1,4 @@
-# /usr/lib/postgresql/14/bin/pg_ctl -D /mnt/b_public/data/wangzr/pgdata/ -l logfile start
+# /usr/lib/postgresql/14/bin/pg_ctl -D /var/lib/postgresql/data/ -l logfile start
 # clickhouse  start # 启动clickhouse http://localhost:8123/play
 
 # 清空clickhouse数据库

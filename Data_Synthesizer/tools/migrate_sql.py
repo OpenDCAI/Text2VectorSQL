@@ -1093,7 +1093,7 @@ if __name__ == '__main__':
     
     # --- 配置区 ---
     # 请根据您的环境修改这些配置
-    INPUT_FILE_PATH = '/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/toy_spider/question_and_sql_pairs.json'
+    INPUT_FILE_PATH = '../pipeline/sqlite/results/toy_spider/question_and_sql_pairs.json'
     TARGET_DB_TYPE = 'postgresql'  # 或 'clickhouse'
     ENGINE_CONFIG_PATH = 'Execution_Engine/engine_config.yaml' # 执行引擎的配置文件路径
     # --- 配置区结束 ---

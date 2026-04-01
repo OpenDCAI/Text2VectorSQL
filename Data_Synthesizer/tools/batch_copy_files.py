@@ -21,8 +21,8 @@ SUFFIX_MAP = {
 }
 
 # 3. 定义基础的源目录和目标目录
-BASE_SOURCE_DIR = "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results"
-BASE_DEST_DIR = "/mnt/b_public/data/ydw/Text2VectorSQL/Data_Synthesizer/pipeline"
+BASE_SOURCE_DIR = "../pipeline/sqlite/results"
+BASE_DEST_DIR = "../pipeline"
 
 # --- 脚本主逻辑 ---
 
