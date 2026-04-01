@@ -5,7 +5,7 @@ for every column that stores embeddings (e.g. *_embedding Array(Float32)).
 
 Example:
     python build_myscale_vector_indexes.py \\
-        --host 112.126.57.89 --port 9000 --user default --password 'xxxxx' \\
+        --host localhost --port 9000 --user default --password '' \\
         --db-prefix arxiv --dry-run
 满意后去掉 --dry-run 执行；若需要强制刷新已有索引加 --rebuild。你也可以用 --databases arxiv bird spider 精确指定库，或用 --include-all-columns 覆盖关键词限制。
 """
@@ -55,10 +55,10 @@ def parse_args() -> argparse.Namespace:
         description="Create VECTOR INDEX for embedding columns in MyScale databases.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--host", default="112.126.57.89", help="MyScale / ClickHouse host.")
+    parser.add_argument("--host", default="localhost", help="MyScale / ClickHouse host.")
     parser.add_argument("--port", type=int, default=9000, help="TCP port.")
     parser.add_argument("--user", default="default", help="User name.")
-    parser.add_argument("--password", default="xxxxx", help="User password.")
+    parser.add_argument("--password", default="", help="User password.")
 
     parser.add_argument(
         "--databases",

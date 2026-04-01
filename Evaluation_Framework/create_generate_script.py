@@ -142,73 +142,13 @@ if __name__ == '__main__':
         # 'command-r-plus-08-2024',
     ]
     
+    # VLLM model paths - replace with your local model paths.
+    # Download models via: python Data_Synthesizer/tools/download_model.py
+    # Or specify HuggingFace model IDs / local paths.
     MODEL_PATHS = [
-        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step200',
-        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step400',
-        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step600',
-        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step800',
-        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step1000',
-        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step1200',
-        '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step1600',
-
-        # '/mnt/DataFlow/ydw/model/OmniSQL-7B',
-        # '/mnt/DataFlow/ydw/model/OmniSQL-14B',
-        # '/mnt/DataFlow/ydw/model/OmniSQL-32B',
-        # # Open-source LLMs (˜7B)
-        # '/mnt/DataFlow/ydw/model/deepseek-coder-6.7b-instruct',
-        # '/mnt/DataFlow/ydw/model/Qwen2.5-Coder-7B-Instruct',
-        # '/mnt/DataFlow/ydw/model/Qwen2.5-7B-Instruct',
-        # '/mnt/DataFlow/ydw/model/OpenCoder-8B-Instruct',
-        # '/mnt/DataFlow/ydw/model/Meta-Llama-3.1-8B-Instruct',
-        # # # #'/mnt/DataFlow/ydw/model/granite-8b-code-instruct-128k',
-        # # '/mnt/DataFlow/ydw/model/granite-3.1-8b-instruct',
-
-        # UniVectorSQL
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step600',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step800',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-LoRA-Step1100',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-Step1100',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-Step1400',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-Step1800',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-Step2100',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-Step2500',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-No_CoT_Step100',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-No_CoT_Step300',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-No_CoT_Step500',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-No_CoT_Step800',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-7B-No_CoT_Step1000',
-
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step200',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step400',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step600',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step900',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step1000',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-LoRA-Step1100',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-No_CoT-Step500',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-No_CoT-Step1000',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-No_CoT-Step1500',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-Step500',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-Step1000',
-        # '/mnt/DataFlow/ydw/model/UniVectorSQL-14B-Step1500',
-
-
-        # ## Open-source LLMs (14B-32B)
-        # '/mnt/DataFlow/ydw/model/Qwen2.5-Coder-14B-Instruct',
-        # '/mnt/DataFlow/ydw/model/Qwen2.5-14B-Instruct',
-        # '/mnt/DataFlow/ydw/model/starcoder2-15b-instruct-v0.1',
-        # '/mnt/DataFlow/ydw/model/DeepSeek-Coder-V2-Lite-Instruct',
-        # '/mnt/DataFlow/ydw/model/granite-20b-code-instruct-8k',
-        # '/mnt/DataFlow/ydw/model/Codestral-22B-v0.1',
-
-        # # # ## Open-source LLMs (≥ 32B)
-        # '/mnt/DataFlow/ydw/model/Qwen2.5-Coder-32B-Instruct',
-        # # # #'/mnt/DataFlow/ydw/model/Qwen2.5-32B-Instruct',  api
-        # '/mnt/DataFlow/ydw/model/deepseek-coder-33b-instruct',
-        # # '/mnt/DataFlow/ydw/model/granite-34b-code-instruct-8k',
-        # '/mnt/DataFlow/ydw/model/Mixtral-8x7B-Instruct-v0.1',
-        # '/mnt/DataFlow/ydw/model/Meta-Llama-3.1-70B-Instruct',
-        # # # # '/mnt/DataFlow/ydw/model/Qwen2.5-72B-Instruct', api
-        # # # # '/mnt/DataFlow/ydw/model/DeepSeek-V3 (671B, MoE)', api
+        # './models/UniVectorSQL-7B-LoRA-Step600',
+        # './models/UniVectorSQL-7B-LoRA-Step800',
+        # './models/UniVectorSQL-7B-LoRA-Step1000',
     ]
 
     # --- 运行主函数 ---

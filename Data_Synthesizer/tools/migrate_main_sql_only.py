@@ -34,11 +34,11 @@ ENGINE_CONFIG_PATH = os.path.join(project_root, 'Execution_Engine', 'engine_conf
 
 def get_paths(dataset_name):
     """根据数据集名称动态生成路径"""
-    input_path = f'/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/{dataset_name}/candidate_sql.json'
-    
-    base_dir_pg = f'/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/postgresql/results/{dataset_name}'
-    base_dir_ch = f'/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/clickhouse/results/{dataset_name}'
-    base_dir_ms = f'/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/myscale/results/{dataset_name}'
+    input_path = f'../pipeline/sqlite/results/{dataset_name}/candidate_sql.json'
+
+    base_dir_pg = f'../pipeline/postgresql/results/{dataset_name}'
+    base_dir_ch = f'../pipeline/clickhouse/results/{dataset_name}'
+    base_dir_ms = f'../pipeline/myscale/results/{dataset_name}'
     
     os.makedirs(base_dir_pg, exist_ok=True)
     os.makedirs(base_dir_ch, exist_ok=True)
@@ -311,7 +311,7 @@ def main():
     # 配置数据库连接参数
     pg_args = argparse.Namespace(host='localhost', port=5432, user='postgres', password='postgres')
     ch_args = argparse.Namespace(host='localhost', port=9000, user='default', password='') 
-    ms_args = argparse.Namespace(host='112.126.57.89', port=8123, user='default', password=args.myscale_password) 
+    ms_args = argparse.Namespace(host='localhost', port=8123, user='default', password=args.myscale_password) 
     
     # 获取所有可用数据库
     common_pg_ch = set(get_pg_ch_common_databases(pg_args, ch_args))

@@ -4,3 +4,5 @@ tqdm
 numpy
 pyparsing
 sqlalchemy
+sqlite-vec
+sqlite-lembed

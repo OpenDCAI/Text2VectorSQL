@@ -3,6 +3,7 @@
 import argparse
 import json
 import logging
+import os
 import re
 import sys
 import signal
@@ -22,8 +23,12 @@ import sqlite_lembed
 # logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("ExecutionEngine")
 
-# You need to ensure this path point to your sqlite_vec databases
-SQLITE_DATABASE_PATH = "/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data/vector_databases"
+# Default path to sqlite_vec databases (relative to project root).
+# This is overridden by evaluation_config.yaml's base_dir when running evaluations.
+SQLITE_DATABASE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "Data_Synthesizer", "pipeline", "sqlite", "results", "synthesis_data", "vector_databases"
+)
 
 class TimeoutError(Exception):
     """自定义超时异常"""

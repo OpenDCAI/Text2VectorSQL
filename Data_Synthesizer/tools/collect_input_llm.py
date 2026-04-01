@@ -3,10 +3,10 @@ import random
 
 # 1. 定义您提供的三个JSON文件的路径列表
 file_paths = [
-    '/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/sqlite/results/synthesis_data/input_llm.json',
-    '/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/postgresql/results/synthesis_data/input_llm.json',
-    '/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/myscale/results/synthesis_data/input_llm.json',
-    '/mnt/DataFlow/ydw/Text2VectorSQL/Data_Synthesizer/pipeline/clickhouse/results/synthesis_data/input_llm.json'
+    '../pipeline/sqlite/results/synthesis_data/input_llm.json',
+    '../pipeline/postgresql/results/synthesis_data/input_llm.json',
+    '../pipeline/myscale/results/synthesis_data/input_llm.json',
+    '../pipeline/clickhouse/results/synthesis_data/input_llm.json'
 ]
 
 output_file_path = 'results/collected_input_llm.json'

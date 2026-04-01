@@ -497,7 +497,7 @@ Note: Model configuration is set in the script code (DEFAULT_MODEL_CONFIG).
     # Required argument
     parser.add_argument(
         '--results-dir',
-        default='/mnt/DataFlow/ydw/Text2VectorSQL/Evaluation_Framework/results',
+        default='./results',
         help='Root directory containing results (structure: results_dir/db_type/dataset_type/evaluation_report_model.json)'
     )
     
