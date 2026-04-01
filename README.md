@@ -10,12 +10,6 @@
 
 <h5 align="center"> If you like our project, please give us a star ⭐ on GitHub for the latest update.</h5>
 
-## 📖 Documentation
-
-- **[Reproduction Guide](REPRODUCTION_GUIDE.md)** - Complete step-by-step guide to reproduce the project
-- **[复现指南（中文）](复现指南.md)** - 中文复现记录
-- **[Project Status](PROJECT_STATUS.md)** - Current project status and roadmap
-
 ## 💡 Overview
 
 This project proposes **Text2VectorSQL**, a new task aimed at building a unified natural language interface for querying both **structured data** and **unstructured data**.
