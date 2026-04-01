@@ -1,3 +1,4 @@
+# Environment files
 .env
 .env.*
 !.env.example
@@ -9,56 +10,53 @@ __MACOSX/
 # Python cache and environment files
 __pycache__/
 *.pyc
+*.egg-info
 venv/
 env/
 
+# IDE
+.vscode/
 
-# big files
-train/
-results/
-!question_synthesis/results/
-!synthesis/toy_spider/train
-prompts/
-models/
-models_cache/
-results/
+# Large data files and models
+Data_Synthesizer/model/
+Data_Synthesizer/data/
+Data_Synthesizer/database_synthesis/synthesis_data/
+Data_Synthesizer/database_synthesis/synthesis_data.tar.gz
+Data_Synthesizer/database_synthesis/results/
+Data_Synthesizer/database_synthesis/results.tar.gz
 Data_Synthesizer/database_synthesis/*.json
+Data_Synthesizer/pipeline/*/prompts.tar.gz
+Data_Synthesizer/pipeline/*/results.tar.gz
+Data_Synthesizer/pipeline/*/results/
+Data_Synthesizer/tools/results/
+
+# Embedding models
+Embedding_Service/models/
+Embedding_Service/models_cache/
+
+# Evaluation results
 Evaluation_Framework/*.json
-Data_Synthesizer/database_synthesis/synthesis_data
-Data_Synthesizer/database_synthesis/tables.json
-Data_Synthesizer/database_synthesis/web_tables.json
-Data_Synthesizer/database_synthesis/results_ignore_UL
-Data_Synthesizer/database_synthesis/synthesis_data_ignore_UL
+Evaluation_Framework/results/
+Evaluation_Framework/test_data/
+!Evaluation_Framework/evaluation_config.yaml
 
-spider_data/
-spider2_data/
-cache/
-# prompt*/
-logging/
-
-*.gguf
-./synthesis/model/
-
+# Database files
 *.sql
 *.sqlite
-
-# *.yaml
-Embedding_Service/config.yaml
-Data_Synthesizer/pipeline/config.yaml
-
-__pycache__
-.vscode
 *.sqlite-shm
 *.sqlite-wal
-*.egg-info
-results/*
-database/
-clash-for-linux/
-tmp/
-*.zip
 *.db
-*.gguf
-*.yaml
-Data_Synthesizer/data
 
-LLaMA-Factory/
+# Logs
+*.log
+logging/
+
+# Temporary files
+tmp/
+cache/
+
+# Config files with sensitive data
+Embedding_Service/config.yaml
+Data_Synthesizer/pipeline/config.yaml
+Execution_Engine/engine_config.yaml
+Evaluation_Framework/generate_config.yaml

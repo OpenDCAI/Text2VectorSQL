@@ -2,7 +2,7 @@
 
 # 上一步部署的Embedding Service的API地址
 embedding_service:
-  url: "http://localhost:8000/embed"
+  url: "http://localhost:8333/embed"
   # 可以增加超时等配置
   # timeout: 10
 

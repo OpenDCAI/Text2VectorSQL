@@ -26,8 +26,7 @@ def main():
             allow_patterns=f"{MODEL_PATH}/*",
             local_dir=local_target_path,
             local_dir_use_symlinks=False,
-            resume_download=True, # 如果中断了可以继续
-            token=True # 如果是私有仓库，会自动读取你登录的 HF Token
+            resume_download=True # 如果中断了可以继续
         )
         
         print("\n✅ 模型下载完成！")
