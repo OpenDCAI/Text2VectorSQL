@@ -4,7 +4,7 @@ from sqlite_schema_parser import verify_schema
 import random
 
 if __name__ == "__main__":
-    enhanced_results = json.load(open("./results/schema_enhancement.json"))
+    enhanced_results = json.load(open("./results/schema_enhancement.json", encoding="utf-8"))
 
     final_schemas = []
     error_case_num = 0
